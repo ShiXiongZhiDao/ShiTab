@@ -1,0 +1,46 @@
+name: CI
+
+# 这个仓库的构建门禁：每个 push 与 PR 都跑一遍类型检查、单测与双端构建。
+# 权限只读 —— 它不需要写任何东西。
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 装依赖（含 wxt prepare 生成类型）
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查 + 单测 + 双端构建
+        run: pnpm verify
+
+      - name: 产物清单核对
+        run: |
+          set -euo pipefail
+          for target in .output/chrome-mv3 .output/firefox-mv3; do
+            test -f "$target/manifest.json" || { echo "缺少 $target/manifest.json"; exit 1; }
+          done
+          echo "chrome-mv3 与 firefox-mv3 都构建出来了"

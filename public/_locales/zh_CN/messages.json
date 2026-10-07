@@ -1,0 +1,773 @@
+{
+  "extensionName": {
+    "message": "师兄收纳 ShiTab"
+  },
+  "brandName": {
+    "message": "师兄收纳"
+  },
+  "extensionDescription": {
+    "message": "一键收好 Tabs，之后随时找回。数据只存本机：不要账号、不要服务器、不要网页访问权限。"
+  },
+  "search_placeholder": {
+    "message": "搜索标签组、标题或网址"
+  },
+  "search_no_results": {
+    "message": "没有与「__q__」匹配的结果"
+  },
+  "empty_title": {
+    "message": "还没有收纳任何网页"
+  },
+  "empty_hint": {
+    "message": "点一下工具栏上的师兄收纳图标，就能把这个窗口的所有网页收成一个标签组。"
+  },
+  "group_untitled": {
+    "message": "未命名标签组"
+  },
+  "group_name_placeholder": {
+    "message": "输入名称"
+  },
+  "group_tab_count": {
+    "message": "__count__ 个网页"
+  },
+  "group_tab_count_one": {
+    "message": "1 个网页"
+  },
+  "group_rename": {
+    "message": "重命名"
+  },
+  "group_delete": {
+    "message": "删除"
+  },
+  "group_pin": {
+    "message": "置顶收藏"
+  },
+  "group_unpin": {
+    "message": "取消置顶"
+  },
+  "group_restore_all": {
+    "message": "恢复全部"
+  },
+  "restore_in_new_window": {
+    "message": "在新窗口还原"
+  },
+  "restore_in_incognito": {
+    "message": "在无痕窗口还原"
+  },
+  "group_lock": {
+    "message": "锁定标签组"
+  },
+  "group_unlock": {
+    "message": "取消锁定"
+  },
+  "group_locked": {
+    "message": "已锁定"
+  },
+  "group_locked_hint": {
+    "message": "锁定后不能删除标签组，也不能删除或移动其中的标签页。"
+  },
+  "copy_links": {
+    "message": "复制全部链接"
+  },
+  "copy_tab_action": {
+    "message": "复制链接"
+  },
+  "copy_done": {
+    "message": "已复制 __count__ 条链接到剪贴板"
+  },
+  "copy_tab_done": {
+    "message": "已复制链接"
+  },
+  "export_html": {
+    "message": "导出为网页"
+  },
+  "move_to_category": {
+    "message": "添加到分类"
+  },
+  "more_actions": {
+    "message": "更多操作"
+  },
+  "show_remaining": {
+    "message": "展开其余 __count__ 个标签页"
+  },
+  "collapse": {
+    "message": "收起"
+  },
+  "group_empty": {
+    "message": "这个标签组是空的。把别的标签组里的网页拖进来。"
+  },
+  "tab_restore": {
+    "message": "恢复"
+  },
+  "tab_restored": {
+    "message": "已在目标窗口打开"
+  },
+  "tab_delete": {
+    "message": "删除"
+  },
+  "tab_not_restorable": {
+    "message": "无法直接恢复"
+  },
+  "tab_kept_open": {
+    "message": "收纳时未关闭"
+  },
+  "confirm_delete_group_title": {
+    "message": "删除这个标签组？"
+  },
+  "confirm_delete_group_body": {
+    "message": "其中 __count__ 条已保存的网页会被移除，且无法撤销。"
+  },
+  "confirm_yes": {
+    "message": "删除"
+  },
+  "confirm_no": {
+    "message": "取消"
+  },
+  "result_capture_summary": {
+    "message": "已存 __saved__ · 已关 __closed__ · 保留 __kept__"
+  },
+  "result_restore_summary": {
+    "message": "已恢复 __restored__ · 已跳过 __skipped__ · 失败 __failed__"
+  },
+  "result_failed_note": {
+    "message": "__count__ 条无法打开"
+  },
+  "result_pinned_skipped": {
+    "message": "__count__ 个固定标签页未被打扰"
+  },
+  "result_non_restorable_saved": {
+    "message": "__count__ 条无法直接恢复"
+  },
+  "result_skipped_note": {
+    "message": "__count__ 条是有意没打开的（已经开着，或无法恢复）"
+  },
+  "undo_action": {
+    "message": "撤销"
+  },
+  "capture_no_tabs": {
+    "message": "这个窗口里没有可收纳的网页。"
+  },
+  "import_action": {
+    "message": "导入"
+  },
+  "export_action": {
+    "message": "导出"
+  },
+  "import_invalid_json": {
+    "message": "这个文件不是有效的 JSON。"
+  },
+  "import_wrong_format": {
+    "message": "这不是师兄收纳的备份文件（期望 format 为 \"shitab-backup\"）。"
+  },
+  "import_unsupported_version": {
+    "message": "这份备份的版本是 __version__，比师兄收纳当前支持的 v1 更新。"
+  },
+  "import_result": {
+    "message": "已导入 __groups__ 个标签组 · __tabs__ 个标签页 · __categories__ 个分类"
+  },
+  "export_done": {
+    "message": "备份已写入「下载」文件夹。"
+  },
+  "operation_failed": {
+    "message": "操作没有完成"
+  },
+  "options_title": {
+    "message": "师兄收纳 · 设置"
+  },
+  "options_capture_section": {
+    "message": "收纳"
+  },
+  "options_close_after_capture": {
+    "message": "收纳后关闭网页"
+  },
+  "options_restore_section": {
+    "message": "恢复"
+  },
+  "options_restore_hint": {
+    "message": "还原到哪个窗口由每个标签组标题行上的按钮决定：「在此窗口还原」和「在新窗口还原」。"
+  },
+  "options_appearance_section": {
+    "message": "外观"
+  },
+  "options_theme": {
+    "message": "主题"
+  },
+  "options_theme_system": {
+    "message": "跟随系统"
+  },
+  "options_language": {
+    "message": "语言"
+  },
+  "options_language_system": {
+    "message": "跟随浏览器"
+  },
+  "options_language_note": {
+    "message": "选完立刻生效，不用刷新。界面里的品牌字跟着这个开关走；而 edge://extensions 上的名字与商店描述仍由浏览器语言决定 —— 那部分我们改不动。"
+  },
+  "options_theme_light": {
+    "message": "亮色"
+  },
+  "options_theme_dark": {
+    "message": "暗色"
+  },
+  "options_data_section": {
+    "message": "数据"
+  },
+  "options_last_export": {
+    "message": "上次导出"
+  },
+  "options_permissions_section": {
+    "message": "权限"
+  },
+  "options_permissions_body": {
+    "message": "安装时申请三项权限：tabs（读取标签页的标题与网址，不然存不下来）、storage（把标签组存在这台浏览器里）、alarms（页面全关着的时候也有一条节拍去同步）。安装时不申请任何主机权限，新增功能也不会让已安装的用户被禁用扩展。只有当你打开 WebDAV 同步、点「连接并同步」时，浏览器才会就你填写的那一个服务器地址向你请求一次权限，而且只限于那一个地址；它不会被用于读取普通网页的内容。你的标签组只保存在这台浏览器的本地存储里，没有账号，也没有我们的服务器。"
+  },
+  "open_options": {
+    "message": "设置"
+  },
+  "toggle_theme": {
+    "message": "切换主题"
+  },
+  "theme_label": {
+    "message": "主题"
+  },
+  "close": {
+    "message": "关闭"
+  },
+  "bulk_restore": {
+    "message": "恢复所选"
+  },
+  "clear_selection": {
+    "message": "取消选择"
+  },
+  "bulk_delete": {
+    "message": "删除所选"
+  },
+  "bulk_delete_confirm": {
+    "message": "确认删除选中的 __groups__ 个标签组和 __records__ 条记录？它们会进回收站，锁定的会被跳过。"
+  },
+  "bulk_delete_done": {
+    "message": "已删除 __groups__ 个标签组 · __records__ 条记录"
+  },
+  "bulk_delete_done_skipped": {
+    "message": "已删除 __groups__ 个标签组 · __records__ 条记录 · 跳过 __skipped__ 个锁定的"
+  },
+  "bulk_records_restored": {
+    "message": "已恢复 __records__ 条记录"
+  },
+  "bulk_records_partial": {
+    "message": "已恢复 __records__ 条记录 · 失败 __failed__ 条"
+  },
+  "select_all": {
+    "message": "全选"
+  },
+  "search_results": {
+    "message": "搜索结果"
+  },
+  "category_all": {
+    "message": "所有标签组"
+  },
+  "category_uncategorized": {
+    "message": "未分类"
+  },
+  "category_remove": {
+    "message": "从分类中移除"
+  },
+  "category_search_placeholder": {
+    "message": "查找分类"
+  },
+  "category_add": {
+    "message": "新建分类"
+  },
+  "category_name_placeholder": {
+    "message": "分类名称"
+  },
+  "category_empty_hint": {
+    "message": "新建一个分类，再把标签组拖到它上面，就能按主题归组。"
+  },
+  "category_rename": {
+    "message": "重命名分类"
+  },
+  "category_delete": {
+    "message": "删除分类"
+  },
+  "category_move_up": {
+    "message": "上移"
+  },
+  "category_move_down": {
+    "message": "下移"
+  },
+  "total_tabs": {
+    "message": "已收纳的标签页总数"
+  },
+  "rail_resize": {
+    "message": "调整分类栏宽度"
+  },
+  "rail_resize_hint": {
+    "message": "拖动调整宽度，双击恢复默认"
+  },
+  "list_empty_filtered": {
+    "message": "这里还没有标签组"
+  },
+  "load_more_sessions": {
+    "message": "加载更多（还有 __count__ 个标签组）"
+  },
+  "action_default_title": {
+    "message": "师兄收纳：把当前窗口的标签收起来"
+  },
+  "action_stashed": {
+    "message": "师兄收纳：已存下 __count__ 个标签"
+  },
+  "action_in_progress": {
+    "message": "师兄收纳：正在收…"
+  },
+  "capture_failed_kept_open": {
+    "message": "收纳失败，原标签未关闭。"
+  },
+  "result_no_landing": {
+    "message": "没能为窗口安排好落脚页，已保留活动标签页。"
+  },
+  "options_keep_active_tab": {
+    "message": "收纳后保留当前活动标签页"
+  },
+  "options_include_pinned_tabs": {
+    "message": "同时收纳我自己固定的标签页"
+  },
+  "options_entry_section": {
+    "message": "标签栏入口 T"
+  },
+  "options_pinned_entry_enabled": {
+    "message": "在标签栏最左侧固定一个师兄收纳的入口标签页"
+  },
+  "options_auto_restore_pinned_tab": {
+    "message": "我关掉它之后自动重建"
+  },
+  "options_keep_pinned_tab_first": {
+    "message": "每次校正时把它拽回固定区最左侧"
+  },
+  "options_entry_hint": {
+    "message": "校正发生在浏览器启动、新建窗口和刚收纳完这三个时刻；你正在拖标签时不会去动它。"
+  },
+  "options_sync_section": {
+    "message": "WEBDAV 同步"
+  },
+  "sync_connect_note": {
+    "message": "填这三项，点一下连接就行。数据只存在你自己的服务器上。"
+  },
+  "sync_connected": {
+    "message": "已连接"
+  },
+  "sync_paused": {
+    "message": "已暂停"
+  },
+  "sync_switch_label": {
+    "message": "同步"
+  },
+  "sync_off_hint": {
+    "message": "关掉只是不再上传下载 —— 地址、已存的密码、本地标签组都留着，远端历史也不会自动删。"
+  },
+  "sync_expand": {
+    "message": "改设置 / 看服务器上的历史 ›"
+  },
+  "sync_collapse": {
+    "message": "收起"
+  },
+  "sync_step_once": {
+    "message": "点一次依次发生：校验地址 → 向浏览器要这一个源的权限 → 建目录 → 推第一版。"
+  },
+  "sync_http_title": {
+    "message": "这是 http://（明文）地址：标签标题与网址会在路上被任何人读到。"
+  },
+  "options_sync_base_url": {
+    "message": "WebDAV 地址"
+  },
+  "options_sync_username": {
+    "message": "用户名"
+  },
+  "options_sync_password": {
+    "message": "密码"
+  },
+  "sync_credential_hint": {
+    "message": "坚果云要填「应用密码」（在坚果云网页端「账户信息 → 安全选项 → 添加应用密码」里生成），用户名填你的账号邮箱。这两样只存在你这台机器上。"
+  },
+  "options_sync_allow_insecure": {
+    "message": "允许这台服务器使用 http://（明文传输）"
+  },
+  "sync_permission_note": {
+    "message": "这里申请的浏览器权限只用于访问你上面填写的 WebDAV 服务地址，不用于读取普通网页内容。"
+  },
+  "sync_placeholder_url": {
+    "message": "https://dav.jianguoyun.com/dav"
+  },
+  "sync_remote_path": {
+    "message": "同步数据会存放在"
+  },
+  "sync_placeholder_password": {
+    "message": "输入以设置或修改"
+  },
+  "sync_password_kept": {
+    "message": "已保存 —— 留空则不改动"
+  },
+  "sync_action_connect": {
+    "message": "连接并同步"
+  },
+  "sync_busy_connect": {
+    "message": "连接中…"
+  },
+  "sync_busy_apply": {
+    "message": "重连中…"
+  },
+  "sync_busy_test": {
+    "message": "测试中…"
+  },
+  "sync_busy_sync": {
+    "message": "同步中…"
+  },
+  "history_busy_load": {
+    "message": "读取中…"
+  },
+  "history_busy_restore": {
+    "message": "恢复中…"
+  },
+  "history_busy_prune": {
+    "message": "清理中…"
+  },
+  "sync_action_apply": {
+    "message": "应用并重连"
+  },
+  "sync_action_test_only": {
+    "message": "只测连接"
+  },
+  "sync_action_now": {
+    "message": "立即同步"
+  },
+  "sync_status_label": {
+    "message": "同步状态"
+  },
+  "sync_last_sync": {
+    "message": "最后同步"
+  },
+  "sync_never": {
+    "message": "从未"
+  },
+  "sync_status_disabled": {
+    "message": "已关闭"
+  },
+  "sync_status_idle": {
+    "message": "已是最新"
+  },
+  "sync_status_syncing": {
+    "message": "同步中"
+  },
+  "sync_status_pending": {
+    "message": "等待同步"
+  },
+  "sync_status_conflict": {
+    "message": "有冲突，等你选择"
+  },
+  "sync_status_suspicious": {
+    "message": "检测到异常变化"
+  },
+  "sync_status_error": {
+    "message": "同步失败"
+  },
+  "trash_empty_title": {
+    "message": "回收站是空的"
+  },
+  "trash_empty": {
+    "message": "被删除的标签组会在这里保留 7 天，到期自己消失。"
+  },
+  "trash_days_left": {
+    "message": "还剩 __days__ 天"
+  },
+  "trash_badge_restored": {
+    "message": "已恢复"
+  },
+  "trash_action_restore": {
+    "message": "还原"
+  },
+  "trash_action_purge": {
+    "message": "彻底删除"
+  },
+  "trash_bulk_restore": {
+    "message": "还原所选"
+  },
+  "bulk_summary": {
+    "message": "已选 __groups__ 个标签组 · __records__ 条记录"
+  },
+  "bulk_select_record": {
+    "message": "勾选这一条"
+  },
+  "bulk_check_row": {
+    "message": "选中这一行的全部记录"
+  },
+  "trash_bulk_purge": {
+    "message": "彻底删除所选"
+  },
+  "trash_bulk_purge_confirm": {
+    "message": "确认彻底删除选中的 __groups__ 个标签组和 __records__ 条记录？本机这一份删掉后无法再找回。"
+  },
+  "trash_bulk_restored": {
+    "message": "已还原 __groups__ 个标签组、__records__ 条记录。"
+  },
+  "trash_bulk_purged": {
+    "message": "已彻底删除 __groups__ 个标签组、__records__ 条记录。"
+  },
+  "options_conflict_section": {
+    "message": "等你裁决的冲突"
+  },
+  "conflict_hint": {
+    "message": "另一台设备在上次同步之后删除了这个标签组，而这台电脑在那之后又改过它。请你选哪一个算 —— 你没决定之前，什么都不会上传。"
+  },
+  "conflict_reason_deleted": {
+    "message": "在另一台设备上被删除"
+  },
+  "conflict_reason_consumed": {
+    "message": "在另一台设备上被还原消费掉"
+  },
+  "conflict_reason_undone": {
+    "message": "在另一台设备上被撤销收纳移除"
+  },
+  "conflict_deleted_on_other": {
+    "message": "另一台设备：__device__"
+  },
+  "conflict_action_keep": {
+    "message": "保留这台电脑上的"
+  },
+  "conflict_action_delete": {
+    "message": "确认删除"
+  },
+  "conflict_busy": {
+    "message": "处理中…"
+  },
+  "conflict_after_resolve": {
+    "message": "选「保留」表示这个标签组留在本机，并在下一次同步时回传到服务器；选「确认删除」后，等本机回收站过期就找不回来了。"
+  },
+  "options_history_section": {
+    "message": "远端历史"
+  },
+  "history_action_load": {
+    "message": "读取远端历史"
+  },
+  "history_total_size": {
+    "message": "服务器上有 __count__ 个快照 · 共 __size__"
+  },
+  "history_revision": {
+    "message": "第 __revision__ 版"
+  },
+  "history_badge_current": {
+    "message": "当前"
+  },
+  "history_action_restore": {
+    "message": "恢复到这一版"
+  },
+  "history_restored": {
+    "message": "已在本机恢复。下一次同步会把它作为一个新版本传上去 —— 服务器上的东西没有被覆盖也没有被删除。"
+  },
+  "history_keep_newest": {
+    "message": "保留最近"
+  },
+  "history_prune_confirm": {
+    "message": "我明白被删掉的版本找不回来"
+  },
+  "history_prune_action": {
+    "message": "清理远端历史"
+  },
+  "history_prune_done": {
+    "message": "已删除 __deleted__ 个快照，保留 __kept__ 个。"
+  },
+  "history_err_disabled": {
+    "message": "WebDAV 同步是关着的，没有东西可读。"
+  },
+  "history_err_bad_url": {
+    "message": "WebDAV 地址无效。"
+  },
+  "history_err_no_credential": {
+    "message": "这台服务器还没有保存密码。"
+  },
+  "history_err_no_manifest": {
+    "message": "服务器上还没有师兄收纳的同步历史。先同步一次，生成第一份快照。"
+  },
+  "history_err_not_confirmed": {
+    "message": "请先勾确认 —— 这一步会删你服务器上的文件。"
+  },
+  "history_err_snapshot_failed": {
+    "message": "本机可恢复快照没能写入，所以服务器上的东西一个都没删。"
+  },
+  "history_err_nothing_to_prune": {
+    "message": "没有可删的 —— 服务器上的数量已经不超过你要保留的。"
+  },
+  "history_err_not_found": {
+    "message": "那一版已经不在服务器上了。"
+  },
+  "history_err_corrupt": {
+    "message": "那一版的内容与它的 checksum 不一致，所以没有恢复它。"
+  },
+  "nav_trash": {
+    "message": "回收站"
+  },
+  "sync_notice_test_ok": {
+    "message": "连接成功：服务器应答了，这个地址通。"
+  },
+  "sync_notice_test_failed": {
+    "message": "连接失败：原因见下面的同步状态一行。"
+  },
+  "sync_notice_saved": {
+    "message": "已保存。还没有上传任何东西 —— 要传的时候点「立即同步」。"
+  },
+  "sync_notice_pushed": {
+    "message": "已把你的标签组作为一个新版本传到服务器上。"
+  },
+  "sync_notice_nothing": {
+    "message": "没有要上传的：服务器上的内容与本机完全一致。"
+  },
+  "sync_notice_suspicious": {
+    "message": "检测到异常变化：本机这一版只有 __sessions__ 个标签组、__records__ 条记录，而服务器上有 __remoteSessions__ 个标签组、__remoteRecords__ 条记录。少得太多，所以这一版没有上传，服务器上那一份没有任何改动。请先看回收站再决定。"
+  },
+  "sync_notice_conflict": {
+    "message": "上面有冲突等你选择，选完之前不会上传。"
+  },
+  "sync_notice_failed": {
+    "message": "同步失败。你本机的标签组没有被改动。"
+  },
+  "sync_notice_connected_failed": {
+    "message": "已经连上了，但这次同步没完成 —— 地址和权限都没问题，是服务器那边失败了。"
+  },
+  "sync_notice_paused": {
+    "message": "同步已关闭。本机和服务器的东西都没删。"
+  },
+  "sync_notice_skipped": {
+    "message": "本轮未发起 · 还没到检查时间。"
+  },
+  "sync_notice_in_flight": {
+    "message": "已经有一轮同步在跑 · 这次并入它。"
+  },
+  "sync_next_check": {
+    "message": "下一次自动检查约 __time__。"
+  },
+  "sync_last_trigger": {
+    "message": "上一次运行由「__trigger__」叫醒。"
+  },
+  "sync_trigger_heartbeat": {
+    "message": "开着的师兄收纳页面"
+  },
+  "sync_trigger_local_change": {
+    "message": "本机的改动"
+  },
+  "sync_trigger_alarm": {
+    "message": "后台定时器"
+  },
+  "sync_trigger_startup": {
+    "message": "启动补拉"
+  },
+  "sync_trigger_manual": {
+    "message": "「立即同步」按钮"
+  },
+  "sync_err_insecure": {
+    "message": "这个地址是明文 http。确实要用，请先勾下面那一项。"
+  },
+  "sync_err_need_password": {
+    "message": "请输一次密码：本机还没有保存过。"
+  },
+  "sync_err_permission_denied": {
+    "message": "浏览器权限没有给出去，所以没有保存任何配置。"
+  },
+  "sync_err_bad_url": {
+    "message": "这个 WebDAV 地址不合法。请在开头写上 https://。"
+  },
+  "sync_err_generic": {
+    "message": "没能保存。请检查地址、用户名与密码。"
+  },
+  "sync_hint_enable_first": {
+    "message": "请先勾上面那个开关：同步现在是关着的，下面几颗按钮点了也不会做事。"
+  },
+  "options_nav_general": {
+    "message": "常规"
+  },
+  "options_nav_sync": {
+    "message": "同步"
+  },
+  "options_nav_about": {
+    "message": "关于"
+  },
+  "options_general_sub": {
+    "message": "收纳与入口的行为。改完立刻生效，没有保存按钮。"
+  },
+  "options_data_sub": {
+    "message": "标签组只存在这台浏览器的本地存储里。导出是一份 JSON，搬家或留底都用它。"
+  },
+  "options_about_sub": {
+    "message": "这个扩展是什么、能碰到什么，以及怎么支持它。"
+  },
+  "options_keep_active_tab_hint": {
+    "message": "正在看的那一页留在窗口里，其余全关。"
+  },
+  "options_dependency_hint": {
+    "message": "先把上面那项打开，这一项才起作用。"
+  },
+  "options_import_append_hint": {
+    "message": "导入只追加，不会覆盖现有的标签组。"
+  },
+  "options_trash_hint": {
+    "message": "删掉的标签组先进工作台的回收站 —— 左栏底部、主题与设置上面那一行。可恢复的记录在本机留 __days__ 天。"
+  },
+  "options_about_free": {
+    "message": "开源、免费"
+  },
+  "options_perms_section": {
+    "message": "这台扩展能碰到什么"
+  },
+  "options_official_section": {
+    "message": "关注公众号"
+  },
+  "options_official_name": {
+    "message": "师兄知道"
+  },
+  "options_official_hint": {
+    "message": "新版本、用法和新功能会先发在公众号「师兄知道」。扫一扫，或在微信里搜这个名字。"
+  },
+  "options_sponsor_section": {
+    "message": "赞助"
+  },
+  "options_sponsor_alipay": {
+    "message": "支付宝"
+  },
+  "options_sponsor_wechat": {
+    "message": "微信"
+  },
+  "options_sponsor_hint_alipay": {
+    "message": "扫一次就是一杯咖啡。"
+  },
+  "options_sponsor_hint_wechat": {
+    "message": "同上，走微信。"
+  },
+  "options_sponsor_note": {
+    "message": "所有功能永久免费、开源，赞助不会解锁任何东西，也不会改变任何功能 —— 它只是让下一版来得快一点。"
+  },
+  "options_qr_alt_official": {
+    "message": "公众号「师兄知道」的二维码"
+  },
+  "options_qr_alt_alipay": {
+    "message": "支付宝收款二维码"
+  },
+  "options_qr_alt_wechat": {
+    "message": "微信收款二维码"
+  },
+  "options_qr_missing": {
+    "message": "图片没读到：__file__"
+  },
+  "options_subtitle": {
+    "message": "一键收好 Tabs，之后随时找回"
+  },
+  "options_local_only": {
+    "message": "只存本机，没有账号"
+  },
+  "options_sync_sub": {
+    "message": "把标签组同步到你自己的 WebDAV 网盘。默认关着：不填就永远不会发出任何请求。"
+  },
+  "options_repo_section": {
+    "message": "开源仓库"
+  },
+  "options_repo_hint": {
+    "message": "源码都在这里，issue 请提在 Gitee。"
+  }
+}

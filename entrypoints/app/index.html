@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShiTab</title>
+    <!--
+      入口 T 页（V1.1 设计包 A）。这是一个**未列出**的 HTML entrypoint：
+      目录名 app 不是 WXT 的保留名，所以不会往 manifest 里写任何键 ——
+      尤其不能写出 action.default_popup，那会让 action.onClicked 不再触发。
+
+      pinned tab 显示的就是这个 favicon。品牌色见 既有约定（深青绿 #356d52 + 白色 T），
+      复用 public/icon/16.png，不另做一套：两处图标分叉迟早会在标签栏里露馅。
+    -->
+    <link rel="icon" href="/icon/16.png" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

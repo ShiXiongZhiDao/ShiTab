@@ -1,0 +1,773 @@
+{
+  "extensionName": {
+    "message": "ShiTab"
+  },
+  "brandName": {
+    "message": "ShiTab"
+  },
+  "extensionDescription": {
+    "message": "Stash tabs in one click, get them back any time. Local-first: no account, no server, no host permissions."
+  },
+  "search_placeholder": {
+    "message": "Search sessions, titles or URLs"
+  },
+  "search_no_results": {
+    "message": "Nothing matches \"__q__\""
+  },
+  "empty_title": {
+    "message": "Nothing stashed yet"
+  },
+  "empty_hint": {
+    "message": "Click the ShiTab toolbar icon to save every web page in this window as a session."
+  },
+  "group_untitled": {
+    "message": "Untitled session"
+  },
+  "group_name_placeholder": {
+    "message": "Name"
+  },
+  "group_tab_count": {
+    "message": "__count__ tabs"
+  },
+  "group_tab_count_one": {
+    "message": "1 tab"
+  },
+  "group_rename": {
+    "message": "Rename"
+  },
+  "group_delete": {
+    "message": "Delete"
+  },
+  "group_pin": {
+    "message": "Pin to top"
+  },
+  "group_unpin": {
+    "message": "Unpin"
+  },
+  "group_restore_all": {
+    "message": "Restore all"
+  },
+  "restore_in_new_window": {
+    "message": "Restore in a new window"
+  },
+  "restore_in_incognito": {
+    "message": "Restore in an incognito window"
+  },
+  "group_lock": {
+    "message": "Lock session"
+  },
+  "group_unlock": {
+    "message": "Unlock session"
+  },
+  "group_locked": {
+    "message": "Locked"
+  },
+  "group_locked_hint": {
+    "message": "Locked sessions can't be deleted, and their tabs can't be removed or moved."
+  },
+  "copy_links": {
+    "message": "Copy all links"
+  },
+  "copy_tab_action": {
+    "message": "Copy link"
+  },
+  "copy_done": {
+    "message": "Copied __count__ links to the clipboard"
+  },
+  "copy_tab_done": {
+    "message": "Link copied"
+  },
+  "export_html": {
+    "message": "Export as a web page"
+  },
+  "move_to_category": {
+    "message": "Add to category"
+  },
+  "more_actions": {
+    "message": "More actions"
+  },
+  "show_remaining": {
+    "message": "Show __count__ more tabs"
+  },
+  "collapse": {
+    "message": "Collapse"
+  },
+  "group_empty": {
+    "message": "This session is empty. Drag a web page into it from another session."
+  },
+  "tab_restore": {
+    "message": "Restore"
+  },
+  "tab_restored": {
+    "message": "Opened in the target window"
+  },
+  "tab_delete": {
+    "message": "Delete"
+  },
+  "tab_not_restorable": {
+    "message": "Cannot be restored"
+  },
+  "tab_kept_open": {
+    "message": "Left open"
+  },
+  "confirm_delete_group_title": {
+    "message": "Delete this session?"
+  },
+  "confirm_delete_group_body": {
+    "message": "__count__ saved tabs will be removed. This cannot be undone."
+  },
+  "confirm_yes": {
+    "message": "Delete"
+  },
+  "confirm_no": {
+    "message": "Cancel"
+  },
+  "result_capture_summary": {
+    "message": "Saved __saved__ · closed __closed__ · kept __kept__"
+  },
+  "result_restore_summary": {
+    "message": "Restored __restored__ · skipped __skipped__ · failed __failed__"
+  },
+  "result_failed_note": {
+    "message": "__count__ could not be opened"
+  },
+  "result_pinned_skipped": {
+    "message": "__count__ pinned tabs were left alone"
+  },
+  "result_non_restorable_saved": {
+    "message": "__count__ saved cannot be restored directly"
+  },
+  "result_skipped_note": {
+    "message": "__count__ were not opened on purpose (already open, or not restorable)"
+  },
+  "undo_action": {
+    "message": "Undo"
+  },
+  "capture_no_tabs": {
+    "message": "This window has no stashable web pages."
+  },
+  "import_action": {
+    "message": "Import"
+  },
+  "export_action": {
+    "message": "Export"
+  },
+  "import_invalid_json": {
+    "message": "That file is not valid JSON."
+  },
+  "import_wrong_format": {
+    "message": "This is not a ShiTab backup (expected format \"shitab-backup\")."
+  },
+  "import_unsupported_version": {
+    "message": "Backup version __version__ is newer than this ShiTab supports (v1)."
+  },
+  "import_result": {
+    "message": "Imported __groups__ sessions · __tabs__ tabs · __categories__ categories"
+  },
+  "export_done": {
+    "message": "Backup written to your Downloads folder."
+  },
+  "operation_failed": {
+    "message": "That didn't work"
+  },
+  "options_title": {
+    "message": "ShiTab settings"
+  },
+  "options_capture_section": {
+    "message": "Stashing"
+  },
+  "options_close_after_capture": {
+    "message": "Close tabs after stashing"
+  },
+  "options_restore_section": {
+    "message": "Restoring"
+  },
+  "options_restore_hint": {
+    "message": "Which window gets the tabs is decided per session: the icon bar offers \"restore here\" and \"restore in a new window\"."
+  },
+  "options_appearance_section": {
+    "message": "Appearance"
+  },
+  "options_theme": {
+    "message": "Theme"
+  },
+  "options_theme_system": {
+    "message": "Follow system"
+  },
+  "options_language": {
+    "message": "Language"
+  },
+  "options_language_system": {
+    "message": "Follow the browser"
+  },
+  "options_language_note": {
+    "message": "Takes effect immediately, no reload needed. The brand word inside the pages follows this switch; the extension's name in edge://extensions and its store description still follow your browser language - that part is resolved by the browser, not by us."
+  },
+  "options_theme_light": {
+    "message": "Light"
+  },
+  "options_theme_dark": {
+    "message": "Dark"
+  },
+  "options_data_section": {
+    "message": "Data"
+  },
+  "options_last_export": {
+    "message": "Last export"
+  },
+  "options_permissions_section": {
+    "message": "Permissions"
+  },
+  "options_permissions_body": {
+    "message": "Three permissions are requested at install: tabs (reads tab titles and URLs — without it nothing can be saved), storage (keeps your sessions in this browser) and alarms (gives the sync one heartbeat even when every page is closed). No host permission is requested at install, and adding a feature never disables the extension for existing users. Only when you turn on WebDAV sync and press Connect & sync does the browser ask you once for the single server address you typed — and only that address. It is never used to read the content of ordinary web pages. Your sessions are stored only in this browser’s local storage; there is no account and no server of ours."
+  },
+  "open_options": {
+    "message": "Settings"
+  },
+  "toggle_theme": {
+    "message": "Toggle theme"
+  },
+  "theme_label": {
+    "message": "Theme"
+  },
+  "close": {
+    "message": "Close"
+  },
+  "bulk_restore": {
+    "message": "Restore selected"
+  },
+  "clear_selection": {
+    "message": "Clear selection"
+  },
+  "bulk_delete": {
+    "message": "Delete selected"
+  },
+  "bulk_delete_confirm": {
+    "message": "Delete __groups__ selected sessions and __records__ records? They go to the trash; locked ones are skipped."
+  },
+  "bulk_delete_done": {
+    "message": "Deleted __groups__ sessions · __records__ records"
+  },
+  "bulk_delete_done_skipped": {
+    "message": "Deleted __groups__ sessions · __records__ records · skipped __skipped__ locked"
+  },
+  "bulk_records_restored": {
+    "message": "Restored __records__ records"
+  },
+  "bulk_records_partial": {
+    "message": "Restored __records__ records · __failed__ failed"
+  },
+  "select_all": {
+    "message": "Select all"
+  },
+  "search_results": {
+    "message": "Results"
+  },
+  "category_all": {
+    "message": "All sessions"
+  },
+  "category_uncategorized": {
+    "message": "Uncategorized"
+  },
+  "category_remove": {
+    "message": "Remove from category"
+  },
+  "category_search_placeholder": {
+    "message": "Find a category"
+  },
+  "category_add": {
+    "message": "New category"
+  },
+  "category_name_placeholder": {
+    "message": "Category name"
+  },
+  "category_empty_hint": {
+    "message": "Create a category, then drag a session onto it to group sessions by topic."
+  },
+  "category_rename": {
+    "message": "Rename category"
+  },
+  "category_delete": {
+    "message": "Delete category"
+  },
+  "category_move_up": {
+    "message": "Move up"
+  },
+  "category_move_down": {
+    "message": "Move down"
+  },
+  "total_tabs": {
+    "message": "Stashed pages in total"
+  },
+  "rail_resize": {
+    "message": "Resize the category panel"
+  },
+  "rail_resize_hint": {
+    "message": "Drag to resize, double-click to reset"
+  },
+  "list_empty_filtered": {
+    "message": "No sessions here"
+  },
+  "load_more_sessions": {
+    "message": "Load __count__ more sessions"
+  },
+  "action_default_title": {
+    "message": "ShiTab: stash this window's tabs"
+  },
+  "action_stashed": {
+    "message": "ShiTab: stashed __count__ tabs"
+  },
+  "action_in_progress": {
+    "message": "ShiTab: stashing…"
+  },
+  "capture_failed_kept_open": {
+    "message": "Stash failed — no tabs were closed."
+  },
+  "result_no_landing": {
+    "message": "Kept the active tab: no landing page could be opened."
+  },
+  "options_keep_active_tab": {
+    "message": "Keep the active tab open after stashing"
+  },
+  "options_include_pinned_tabs": {
+    "message": "Also stash tabs I pinned myself"
+  },
+  "options_entry_section": {
+    "message": "Tab bar entry (T)"
+  },
+  "options_pinned_entry_enabled": {
+    "message": "Keep a ShiTab tab pinned at the left of the tab bar"
+  },
+  "options_auto_restore_pinned_tab": {
+    "message": "Recreate it if I close it"
+  },
+  "options_keep_pinned_tab_first": {
+    "message": "Snap it back to the leftmost pinned slot"
+  },
+  "options_entry_hint": {
+    "message": "Corrections happen when the browser starts, when a window is opened, and right after a stash — not while you drag tabs around."
+  },
+  "options_sync_section": {
+    "message": "WEBDAV SYNC"
+  },
+  "sync_connect_note": {
+    "message": "Fill in these three and connect. Your data stays on your own server."
+  },
+  "sync_connected": {
+    "message": "Connected"
+  },
+  "sync_paused": {
+    "message": "Paused"
+  },
+  "sync_switch_label": {
+    "message": "Sync"
+  },
+  "sync_off_hint": {
+    "message": "Turning this off only stops uploading and downloading — the address, the saved password and your local sessions all stay, and remote history is never deleted on its own."
+  },
+  "sync_expand": {
+    "message": "Change settings / view server history ›"
+  },
+  "sync_collapse": {
+    "message": "Collapse"
+  },
+  "sync_step_once": {
+    "message": "One click does all of it: check the address → ask the browser for permission for this one origin → create the folders → push the first version."
+  },
+  "sync_http_title": {
+    "message": "This is an http:// (plain text) address: tab titles and URLs can be read by anyone along the way."
+  },
+  "options_sync_base_url": {
+    "message": "WebDAV address"
+  },
+  "options_sync_username": {
+    "message": "Username"
+  },
+  "options_sync_password": {
+    "message": "Password"
+  },
+  "sync_credential_hint": {
+    "message": "Nutstore needs an app password: generate one on its website under Account info → Security options → Add app password, and use your account email as the username. Both stay on this device."
+  },
+  "options_sync_allow_insecure": {
+    "message": "Allow http:// (plain text) for this server"
+  },
+  "sync_permission_note": {
+    "message": "The browser permission requested here is used only to reach the WebDAV address you type above. It is not used to read the content of ordinary web pages."
+  },
+  "sync_placeholder_url": {
+    "message": "https://dav.example.com/remote.php/dav/files/me"
+  },
+  "sync_remote_path": {
+    "message": "Data will be stored at"
+  },
+  "sync_placeholder_password": {
+    "message": "Enter to set or change"
+  },
+  "sync_password_kept": {
+    "message": "Saved — leave blank to keep it"
+  },
+  "sync_action_connect": {
+    "message": "Connect & sync"
+  },
+  "sync_busy_connect": {
+    "message": "Connecting…"
+  },
+  "sync_busy_apply": {
+    "message": "Reconnecting…"
+  },
+  "sync_busy_test": {
+    "message": "Testing…"
+  },
+  "sync_busy_sync": {
+    "message": "Syncing…"
+  },
+  "history_busy_load": {
+    "message": "Reading…"
+  },
+  "history_busy_restore": {
+    "message": "Restoring…"
+  },
+  "history_busy_prune": {
+    "message": "Cleaning up…"
+  },
+  "sync_action_apply": {
+    "message": "Apply & reconnect"
+  },
+  "sync_action_test_only": {
+    "message": "Test connection only"
+  },
+  "sync_action_now": {
+    "message": "Sync now"
+  },
+  "sync_status_label": {
+    "message": "Status"
+  },
+  "sync_last_sync": {
+    "message": "Last sync"
+  },
+  "sync_never": {
+    "message": "never"
+  },
+  "sync_status_disabled": {
+    "message": "Off"
+  },
+  "sync_status_idle": {
+    "message": "Up to date"
+  },
+  "sync_status_syncing": {
+    "message": "Syncing"
+  },
+  "sync_status_pending": {
+    "message": "Waiting to sync"
+  },
+  "sync_status_conflict": {
+    "message": "Conflict needs your choice"
+  },
+  "sync_status_suspicious": {
+    "message": "Unusual change detected"
+  },
+  "sync_status_error": {
+    "message": "Sync failed"
+  },
+  "trash_empty_title": {
+    "message": "Recycle bin is empty"
+  },
+  "trash_empty": {
+    "message": "Deleted sessions stay here for 7 days, then disappear on their own."
+  },
+  "trash_days_left": {
+    "message": "__days__ days left"
+  },
+  "trash_badge_restored": {
+    "message": "Restored"
+  },
+  "trash_action_restore": {
+    "message": "Restore"
+  },
+  "trash_action_purge": {
+    "message": "Delete permanently"
+  },
+  "trash_bulk_restore": {
+    "message": "Restore selected"
+  },
+  "bulk_summary": {
+    "message": "__groups__ sessions · __records__ records selected"
+  },
+  "bulk_select_record": {
+    "message": "Select this record"
+  },
+  "bulk_check_row": {
+    "message": "Select every record in this session"
+  },
+  "trash_bulk_purge": {
+    "message": "Delete selected permanently"
+  },
+  "trash_bulk_purge_confirm": {
+    "message": "Delete __groups__ sessions and __records__ records permanently? They cannot be recovered on this device."
+  },
+  "trash_bulk_restored": {
+    "message": "Restored __groups__ sessions and __records__ records."
+  },
+  "trash_bulk_purged": {
+    "message": "Deleted __groups__ sessions and __records__ records permanently."
+  },
+  "options_conflict_section": {
+    "message": "CONFLICTS WAITING FOR YOU"
+  },
+  "conflict_hint": {
+    "message": "Another device deleted a session after you last synced, but this computer changed it afterwards. Pick which one wins — nothing is uploaded until you decide."
+  },
+  "conflict_reason_deleted": {
+    "message": "deleted on the other device"
+  },
+  "conflict_reason_consumed": {
+    "message": "consumed by a restore on the other device"
+  },
+  "conflict_reason_undone": {
+    "message": "removed by an undo on the other device"
+  },
+  "conflict_deleted_on_other": {
+    "message": "Other device: __device__"
+  },
+  "conflict_action_keep": {
+    "message": "Keep it on this computer"
+  },
+  "conflict_action_delete": {
+    "message": "Confirm the deletion"
+  },
+  "conflict_busy": {
+    "message": "Applying…"
+  },
+  "conflict_after_resolve": {
+    "message": "Keeping it means the session stays here and goes back to the server on the next sync. Confirming the deletion cannot be undone here once the recycle bin expires."
+  },
+  "options_history_section": {
+    "message": "REMOTE HISTORY"
+  },
+  "history_action_load": {
+    "message": "Load remote history"
+  },
+  "history_total_size": {
+    "message": "__count__ snapshots on the server · __size__"
+  },
+  "history_revision": {
+    "message": "revision __revision__"
+  },
+  "history_badge_current": {
+    "message": "current"
+  },
+  "history_action_restore": {
+    "message": "Restore this version"
+  },
+  "history_restored": {
+    "message": "Restored on this computer. The next sync uploads it as a new version — nothing on the server was overwritten or deleted."
+  },
+  "history_keep_newest": {
+    "message": "Keep the newest"
+  },
+  "history_prune_confirm": {
+    "message": "I understand that the deleted versions cannot be recovered"
+  },
+  "history_prune_action": {
+    "message": "Clean up remote history"
+  },
+  "history_prune_done": {
+    "message": "Deleted __deleted__ snapshots, kept __kept__."
+  },
+  "history_err_disabled": {
+    "message": "WebDAV sync is off, so there is nothing to read."
+  },
+  "history_err_bad_url": {
+    "message": "The WebDAV address is invalid."
+  },
+  "history_err_no_credential": {
+    "message": "No password is saved for this server."
+  },
+  "history_err_no_manifest": {
+    "message": "The server has no ShiTab history yet. Sync once to create the first snapshot."
+  },
+  "history_err_not_confirmed": {
+    "message": "Tick the confirmation first — this step deletes files on your server."
+  },
+  "history_err_snapshot_failed": {
+    "message": "Could not write a local recoverable snapshot, so nothing on the server was deleted."
+  },
+  "history_err_nothing_to_prune": {
+    "message": "Nothing to delete — the server already holds no more than what you want to keep."
+  },
+  "history_err_not_found": {
+    "message": "That version is no longer on the server."
+  },
+  "history_err_corrupt": {
+    "message": "That version's contents do not match its checksum, so it was not restored."
+  },
+  "nav_trash": {
+    "message": "Recycle bin"
+  },
+  "sync_notice_test_ok": {
+    "message": "Connection OK. The server answered and your address is reachable."
+  },
+  "sync_notice_test_failed": {
+    "message": "Connection failed. The reason is in the sync status line below."
+  },
+  "sync_notice_saved": {
+    "message": "Saved. Nothing has been uploaded yet - press Sync now when you want to."
+  },
+  "sync_notice_pushed": {
+    "message": "Uploaded a new version to your server."
+  },
+  "sync_notice_nothing": {
+    "message": "Nothing to upload - your server already holds exactly this content."
+  },
+  "sync_notice_suspicious": {
+    "message": "Unusual change detected: this version has only __sessions__ sessions and __records__ records, while your server has __remoteSessions__ sessions and __remoteRecords__ records. That is too large a drop, so this version was not uploaded and nothing on your server changed. Check the recycle bin before you decide."
+  },
+  "sync_notice_conflict": {
+    "message": "A conflict needs your choice above before anything is uploaded."
+  },
+  "sync_notice_failed": {
+    "message": "Sync failed. Your local sessions were not modified."
+  },
+  "sync_notice_connected_failed": {
+    "message": "Connected — but this sync did not finish. The address and permission are fine; the server side failed."
+  },
+  "sync_notice_paused": {
+    "message": "Sync is off. Nothing was deleted — on your machine or on the server."
+  },
+  "sync_notice_skipped": {
+    "message": "No check this time — it isn't due yet."
+  },
+  "sync_notice_in_flight": {
+    "message": "A sync is already running, so this request joined it."
+  },
+  "sync_next_check": {
+    "message": "Next automatic check about __time__."
+  },
+  "sync_last_trigger": {
+    "message": "Last run was woken by: __trigger__."
+  },
+  "sync_trigger_heartbeat": {
+    "message": "an open ShiTab page"
+  },
+  "sync_trigger_local_change": {
+    "message": "a change on this device"
+  },
+  "sync_trigger_alarm": {
+    "message": "the background timer"
+  },
+  "sync_trigger_startup": {
+    "message": "startup"
+  },
+  "sync_trigger_manual": {
+    "message": "the Sync now button"
+  },
+  "sync_err_insecure": {
+    "message": "This address is plain http. Tick the box below first if you really mean it."
+  },
+  "sync_err_need_password": {
+    "message": "Enter the password once - none is saved yet."
+  },
+  "sync_err_permission_denied": {
+    "message": "The browser permission was not granted, so nothing was saved."
+  },
+  "sync_err_bad_url": {
+    "message": "That WebDAV address is not valid. Include https:// at the front."
+  },
+  "sync_err_generic": {
+    "message": "Could not save. Check the address, username and password."
+  },
+  "sync_hint_enable_first": {
+    "message": "Tick the switch above first - sync is currently off, so the buttons below do nothing."
+  },
+  "options_nav_general": {
+    "message": "General"
+  },
+  "options_nav_sync": {
+    "message": "Sync"
+  },
+  "options_nav_about": {
+    "message": "About"
+  },
+  "options_general_sub": {
+    "message": "How stashing and the entry tab behave. Changes apply right away — there is no save button."
+  },
+  "options_data_sub": {
+    "message": "Sessions live only in this browser’s local storage. The export is a single JSON file — use it to move or back them up."
+  },
+  "options_about_sub": {
+    "message": "What this extension is, what it can touch, and how to support it."
+  },
+  "options_keep_active_tab_hint": {
+    "message": "Keeps the page you are looking at and closes the rest."
+  },
+  "options_dependency_hint": {
+    "message": "Turn the option above on first — this one does nothing without it."
+  },
+  "options_import_append_hint": {
+    "message": "Import only appends. It never overwrites existing sessions."
+  },
+  "options_trash_hint": {
+    "message": "Deleted sessions go to the workbench trash first — the row at the bottom of the left rail, above theme and settings. Recoverable records stay on this machine for __days__ days."
+  },
+  "options_about_free": {
+    "message": "Open source, free"
+  },
+  "options_perms_section": {
+    "message": "What this extension can touch"
+  },
+  "options_official_section": {
+    "message": "WeChat official account"
+  },
+  "options_official_name": {
+    "message": "师兄知道 (ShiXiongZhiDao)"
+  },
+  "options_official_hint": {
+    "message": "New versions, guides and new features go out first on the official account 师兄知道. Scan the code, or search that name in WeChat."
+  },
+  "options_sponsor_section": {
+    "message": "Support this project"
+  },
+  "options_sponsor_alipay": {
+    "message": "Alipay"
+  },
+  "options_sponsor_wechat": {
+    "message": "WeChat Pay"
+  },
+  "options_sponsor_hint_alipay": {
+    "message": "One scan, one coffee."
+  },
+  "options_sponsor_hint_wechat": {
+    "message": "Same thing, through WeChat."
+  },
+  "options_sponsor_note": {
+    "message": "Every feature is free and open source forever. Sponsoring unlocks nothing and changes nothing — it just makes the next release come sooner."
+  },
+  "options_qr_alt_official": {
+    "message": "QR code for the 师兄知道 official account"
+  },
+  "options_qr_alt_alipay": {
+    "message": "Alipay payment QR code"
+  },
+  "options_qr_alt_wechat": {
+    "message": "WeChat Pay QR code"
+  },
+  "options_qr_missing": {
+    "message": "Image not found: __file__"
+  },
+  "options_subtitle": {
+    "message": "Stash tabs in one click, get them back any time"
+  },
+  "options_local_only": {
+    "message": "local storage only, no account"
+  },
+  "options_sync_sub": {
+    "message": "Sync your sessions to your own WebDAV drive. Off by default: until you fill this in, no request is ever sent."
+  },
+  "options_repo_section": {
+    "message": "Open source repositories"
+  },
+  "options_repo_hint": {
+    "message": "The source lives here — please file issues on Gitee."
+  }
+}

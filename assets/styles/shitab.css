@@ -1,0 +1,242 @@
+@import 'tailwindcss';
+
+/* ShiTab 设计 token —— 唯一来源。
+ * 值取自 既有约定 的 :root。
+ * 组件里不允许出现第二套颜色：需要新色就先在这里加语义 token。
+ *
+ * 暗色派生规则（既有约定 要求记录，待用户过目）：
+ * 保持亮色的色相与饱和度方向不变，把亮度做反向映射——
+ * 亮色的浅背景变成暗色的深背景，正文与反色互换；
+ * 主色 brand 在暗色下提亮一档（#356d52 -> #54a97c），
+ * 否则白字压在深青绿上的对比度在深色背景旁会显得发闷。
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --tn-bg: #f6f7f9;
+  --tn-panel: #ffffff;
+  --tn-panel-raised: #fbfcfb;
+  --tn-line: #e8ebef;
+  --tn-line-strong: #d7dce2;
+  --tn-text: #1d242c;
+  /* 既有约定：亮色的 muted 从 #7b8490 提到 #666e79，warn 从 #8a6d1f 提到 #7d6219。
+     量出来的理由：#7b8490 压在 --panel(#fff) 上只有 3.79:1，而它在全产品被用在 92 处
+     11–12px 的正文与说明上，低于 WCAG AA 对正文要求的 4.5:1；#666e79 在白底 5.16、
+     在 --bg 上 4.81、在 --chip 上 4.72，三处都过。warn 那对在 --warn-soft 上是 4.27 → 5.04。
+     **暗色一个值都没改**（#8d97a3 在 #191d22 上本来就是 5.72:1）。
+     这偏离了 既有约定「token 以 ui-prototype.html 的 :root 为唯一来源」—— 那次定案时没人算过对比度。 */
+  --tn-muted: #666e79;
+  /* ⚠ 这一档在白底只有 2.61:1，连"大字/非文本 UI"的 3:1 都不到 ⇒ **不许再拿它承载文字**。
+     产品里原来仅有的两处（TabRow 的 9px 域名、10px × 按钮）已改用 --muted。 */
+  --tn-muted-soft: #9aa1a8;
+  --tn-brand: #356d52;
+  --tn-brand-contrast: #ffffff;
+  --tn-brand-soft: #e6f0eb;
+  --tn-brand-hover: #2c5c45;
+  --tn-danger: #a8443c;
+  --tn-danger-soft: #f7e9e7;
+  --tn-warn: #7d6219;
+  --tn-warn-soft: #f6efdc;
+  --tn-chip: #f3f5f6;
+  --tn-shadow: 0 14px 36px rgba(27, 38, 32, 0.08);
+  --tn-shadow-soft: 0 2px 8px rgba(27, 38, 32, 0.06);
+}
+
+.dark {
+  --tn-bg: #121519;
+  --tn-panel: #191d22;
+  --tn-panel-raised: #1e232a;
+  --tn-line: #262c33;
+  --tn-line-strong: #333b44;
+  --tn-text: #e6eaf0;
+  --tn-muted: #8d97a3;
+  --tn-muted-soft: #6f7984;
+  --tn-brand: #54a97c;
+  --tn-brand-contrast: #0d1512;
+  --tn-brand-soft: #1e2b25;
+  --tn-brand-hover: #67bd8e;
+  --tn-danger: #e08a80;
+  --tn-danger-soft: #33201e;
+  --tn-warn: #d6b45e;
+  --tn-warn-soft: #2e2818;
+  --tn-chip: #232930;
+  --tn-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  --tn-shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+@theme inline {
+  --color-bg: var(--tn-bg);
+  --color-panel: var(--tn-panel);
+  --color-panel-raised: var(--tn-panel-raised);
+  --color-line: var(--tn-line);
+  --color-line-strong: var(--tn-line-strong);
+  --color-ink: var(--tn-text);
+  --color-muted: var(--tn-muted);
+  --color-muted-soft: var(--tn-muted-soft);
+  --color-brand: var(--tn-brand);
+  --color-brand-contrast: var(--tn-brand-contrast);
+  --color-brand-soft: var(--tn-brand-soft);
+  --color-brand-hover: var(--tn-brand-hover);
+  --color-danger: var(--tn-danger);
+  --color-danger-soft: var(--tn-danger-soft);
+  --color-warn: var(--tn-warn);
+  --color-warn-soft: var(--tn-warn-soft);
+  --color-chip: var(--tn-chip);
+
+  --shadow-card: var(--tn-shadow);
+  --shadow-soft: var(--tn-shadow-soft);
+
+  /* 原型实测值；卡片圆角落在设计稿量出来的 12~16px 那一档 */
+  --radius-shell: 22px;
+  --radius-card: 15px;
+  --radius-control: 12px;
+  --radius-tight: 10px;
+  --radius-row: 9px;
+
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 滚动条槽常驻（既有约定 补格二）。
+   *
+   * 症状：设置页切到「关于」再切回「数据」时整页明显左右跳一下。
+   * 根因不是某个分区更窄 —— `<main>` 是 `flex-1 min-w-0`，宽度只由容器决定，五个分区一模一样。
+   * 真凶是**滚动条本身占布局宽度**：「关于」是最长的一屏（实测 656px），它把文档撑出滚动条，
+   * 可用宽度就少掉一整个滚动条；「数据」(335px) 不滚，滚动条消失，宽度又回来。
+   * 而外层是 `mx-auto max-w-[916px]` 居中 ⇒ 少掉的 15px 一半在左一半在右，看着像整页平移。
+   *
+   * 实测（本机浏览器，元素宽 240px / overflow-y:auto）：
+   *   scrollbar-gutter: auto    → 不滚 240、会滚 225，**跳 15px**
+   *   scrollbar-gutter: stable  → 不滚 225、会滚 225，**跳 0**
+   * 也就是 Windows 桌面 Edge/Chrome 用的是经典滚动条、真的吃布局宽度。
+   *
+   * 代价：内容不滚时也会常驻一条 15px 的槽。工作台那边几乎总是滚的（首屏 ~600 行），
+   * 所以那边观感不变；变的是"短内容时右边多留一点白"，换掉整站的横向抖动。 */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  /* popup 420 宽是原型口径；sidepanel 由宿主决定宽度 */
+  body {
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@utility tn-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 按钮里那颗转圈。刻意自带 keyframes 而不写 `animate-spin`：
+ * Tailwind 的核心工具类会不会被这版的 `@theme` / 内容扫描规则裁掉，取决于构建细节，
+ * 而"点了没反应"这件事的根因就是**看不见的进行中状态** —— 它不该再依赖一个不确定的类名。
+ * 用 `currentColor` + 右边镂空：暗色、亮色、主按钮、次按钮四种底色下都不用另配色。
+ */
+@keyframes tn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@utility tn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: tn-spin 0.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tn-spinner {
+    /* 转圈这件事对晕动症用户是负担；保留"进行中"的语义靠文案与 aria-busy 就够 */
+    animation-duration: 2.4s;
+  }
+}
+
+
+/* ── 整屏交叉淡入淡出（既有约定 补格三 + 四）────────────────────────────
+ *
+ * 一处定义、两处用：设置页换分区（`entrypoints/options/App.vue`）与
+ * 工作台换视图（`entrypoints/app/App.vue` 的 会话列表 ↔ 回收站）。
+ * 之前它写在 options/App.vue 的 scoped 块里，加第二处就会变成两份一模一样的
+ * `.X-enter-active/.X-leave-active` —— 同一件事两份实现，改一处必漏一处（SettingSwitch 同一条理由）。
+ *
+ * 类名前缀必须与 `<Transition name="tn-fade">` 对得上；对不上不会报错，
+ * 只会静默回到硬切。`test/ui-options.spec.ts` 里有一条扫源码的守卫钉这件事。
+ *
+ * 三个都不是顺手定的：
+ * ① **只动 opacity。** 一次切换里同时动的东西超过两样就开始抢注意力，而这两处换的都是设置项与列表，
+ *    不是需要"演一下"的媒体。刻意不加位移与缩放 —— 位移读起来像整页被推走。
+ * ② **退 120ms / 进 200ms，两个数不等**：旧的一屏只是"让位"，新的一屏才是"要看的东西"。
+ *    两边同长会读成"卡了一下才出现"。
+ * ③ **离场那一屏撤出文档流**，两屏才会叠在同一块地方 —— 不撤就是上下排，
+ *    淡出期间下面会空出一整屏高。只钉 top/left/right、**不钉 bottom**：
+ *    钉了会把这一屏拉伸到容器高度，形状就变了。`pointer-events: none` 是顺手补的：
+ *    正在淡出的那一屏不该还能点到里面的开关。
+ */
+.tn-fade-enter-active,
+.tn-fade-leave-active {
+  transition-property: opacity;
+  transition-timing-function: ease;
+}
+
+.tn-fade-enter-active {
+  transition-duration: 200ms;
+}
+
+.tn-fade-leave-active {
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition-duration: 120ms;
+}
+
+.tn-fade-enter-from,
+.tn-fade-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 写 none 而不是把时长调成 0.01ms：Vue 读到 transitionDuration 为 0 时根本不会加这些类，
+     等于**完全跳过**动画，而不是"快到看不见"。 */
+  .tn-fade-enter-active,
+  .tn-fade-leave-active {
+    transition: none;
+  }
+}

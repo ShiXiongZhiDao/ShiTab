@@ -1,0 +1,28 @@
+# 行尾只留一个真相：仓库里存 LF，检出也给 LF。
+#
+# 为什么要显式写这条：没有 .gitattributes 时，行尾由每台机器各自的 `core.autocrlf` 决定 ——
+# 同一个 commit 在 A 机器检出成 CRLF、在 B 机器检出成 LF，改动里就混着整文件的行尾差异
+# （本机实测有 32 个文件是 CRLF）。钉成 `eol=lf` 之后，构建产物的字节不再依赖"你在哪台机器上签出的"。
+#
+# ⚠ 这条属性只管**以后**的检出：已经在磁盘上的那 32 个文件 git 认为"干净"，不会主动重写
+# （`git checkout-index -f` 实测也没改行数，因为 stat 缓存没失效）。想现在就统一：
+#
+#   git ls-files --eol | grep 'w/crlf' | awk '{print $NF}' > /tmp/crlf.txt
+#   git checkout-index -f -- $(cat /tmp/crlf.txt)
+#
+# ⚠ 那两步会**重写工作树里的这些文件**，动手前先确认没有未提交的改动、也没有别人正在改同一批文件。
+* text=auto eol=lf
+
+# 二进制显式标出来：让 git 别去猜（PNG 里正好出现 0x0D 0x0A 就会被当成文本改动）。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.crx binary
+*.xpi binary
