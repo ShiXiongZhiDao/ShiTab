@@ -735,13 +735,13 @@
     "message": "微信"
   },
   "options_sponsor_hint_alipay": {
-    "message": "扫一次就是一杯咖啡。"
+    "message": "以一杯咖啡的温度，支持开源。"
   },
   "options_sponsor_hint_wechat": {
-    "message": "同上，走微信。"
+    "message": "同一份热忱，微信亦可。"
   },
   "options_sponsor_note": {
-    "message": "所有功能永久免费、开源，赞助不会解锁任何东西，也不会改变任何功能 —— 它只是让下一版来得快一点。"
+    "message": "全功能永久免费，代码全部开源，放心用～ —— 你的每一份支持，都在让下一个版本，更快奔赴而来。"
   },
   "options_qr_alt_official": {
     "message": "公众号「师兄知道」的二维码"

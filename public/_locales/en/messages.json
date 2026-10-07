@@ -735,13 +735,13 @@
     "message": "WeChat Pay"
   },
   "options_sponsor_hint_alipay": {
-    "message": "One scan, one coffee."
+    "message": "Back open source with the warmth of a cup of coffee."
   },
   "options_sponsor_hint_wechat": {
-    "message": "Same thing, through WeChat."
+    "message": "Same warmth, through WeChat."
   },
   "options_sponsor_note": {
-    "message": "Every feature is free and open source forever. Sponsoring unlocks nothing and changes nothing — it just makes the next release come sooner."
+    "message": "Every feature is free forever and the code is fully open source. Use it with an easy mind — every bit of support you give helps the next version arrive that much sooner."
   },
   "options_qr_alt_official": {
     "message": "QR code for the 师兄知道 official account"
