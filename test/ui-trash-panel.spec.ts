@@ -394,7 +394,9 @@ describe('回收站的记录列表', () => {
     await wrapper.find('[data-testid="trash-expand-huge"]').trigger('click');
     expect(wrapper.findAll('[data-tab-row]')).toHaveLength(total);
     expect(wrapper.find('[data-testid="trash-expand-huge"]').text()).toBe('Collapse');
-  });
+  // 墙上时间预算，与同族那几条 UI 用例同一档：这一条要挂 430+230 行 DOM，
+  // 默认 5 秒在机器忙时会被跑赢（2026-10-08 全量里就这么红过一次，单独连跑两遍都绿）。
+  }, 20_000);
 
   it('还原其中一条：那条回到会话、行里剩两条、而且这一行还是展开的', async () => {
     const storage = await seedDeleted('f', COLLAPSED_TAB_LIMIT + 1, Date.now());

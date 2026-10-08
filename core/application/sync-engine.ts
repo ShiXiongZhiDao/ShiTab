@@ -18,21 +18,34 @@
  */
 
 import type { StoragePort } from '@/core/ports/storage';
-import type { WebDavPort, WebDavCredential, WebDavErrorKind } from '@/core/ports/webdav';
+import type { WebDavPort, WebDavAdminPort, WebDavCredential, WebDavErrorKind } from '@/core/ports/webdav';
 import { WebDavError } from '@/core/ports/webdav';
-import type { StoredConflict, StoredState, SyncManifest, SyncSnapshot, SyncStatus, SyncTriggerReason, Tombstone } from '@/shared/types';
+import type { ManifestEntry, StoredConflict, StoredState, SyncEventKind, SyncManifest, SyncPointer, SyncSnapshot, SyncStatus, SyncTriggerReason, Tombstone } from '@/shared/types';
 import { claimIsLive, decideSync, SYNC_CLAIM_TTL_MS, type SyncSkipCause } from '@/core/domain/sync-scheduler';
-import { manifestUrl, parseBaseUrl, snapshotIdFor, snapshotUrl, snapshotsDirUrl, manifestsDirUrl, revisionFromUrl, snapshotIdFromUrl } from '@/core/domain/remote-layout';
-import { buildSyncSnapshot, buildManifest, stateChecksumOf, verifyManifest, verifySyncSnapshot } from '@/core/domain/sync-data';
+import { manifestUrl, parseBaseUrl, pointerUrl, snapshotIdFor, snapshotUrl, snapshotsDirUrl, manifestsDirUrl, revisionFromUrl, snapshotIdFromUrl, listingIsTrusted, TRUSTED_LISTING_LIMIT } from '@/core/domain/remote-layout';
+import { buildPointer, buildSyncSnapshot, buildManifest, decodeWire, encodeWire, stateChecksumOf, verifyManifest, verifyPointer, verifySyncSnapshot } from '@/core/domain/sync-data';
+import { mergeDeviceTables, nameOfDevice } from '@/core/domain/device-profile';
 import { assessSyncSafety, type SuspiciousCounts, type SuspiciousRule } from '@/core/domain/safety';
 import { mergeStates, type DeleteVsEditConflict } from '@/core/domain/merge';
 import { captureDurableSnapshot, readStoredState } from '@/core/application/durable-snapshot';
+import { planRestore, type RestorePlanCounts } from '@/core/domain/restore-as-revert';
 import { softDeleteGroup } from '@/core/application/delete-model';
 import { now } from '@/shared/utils';
+import { REMOTE_HISTORY_LIMIT, REMOTE_RETENTION_MAX_DELETES } from '@/shared/constants';
 
 export interface SyncDeps {
   storage: StoragePort;
   webdav: WebDavPort;
+  /**
+   * 只有**显式注入**了管理接口的调用方才做保留删除。
+   *
+   * 既有约定 把 `remove` 关在 `WebDavAdminPort` 里，是为了让"普通同步顺手删远端历史"
+   * 在类型层面写不出来 —— 这条今天仍然成立：不传 `admin` 的 `SyncDeps`（面板那条线、
+   * 以及全部只递 `{storage, webdav}` 的用例）连一行删除代码都执行不到。
+   * 传了的那一条线做的是**写死在常量里的保留策略**（`REMOTE_HISTORY_LIMIT`），
+   * 不是"同步想删谁就删谁"：只删账本自己滚出窗口的那些，且删失败的条目留在账本里等下一轮。
+   */
+  admin?: WebDavAdminPort;
 }
 
 export type SyncSkip =
@@ -145,8 +158,85 @@ interface RemoteView {
  * 这条路径只在 manifest 真的没了时走，所以默认保留历史（Q4）在这里是有成本的，
  * 我把它写进 既有约定 而不是假装免费。
  */
+/**
+ * 读指针文件：**一个 GET，不列目录**。
+ *
+ * 读不到 / 验不过 ⇒ `undefined`，调用方退回扫目录那条老路。两种来路都要能走：
+ * 远端在指针出现之前就有内容（开发期真机已经同步过若干轮），以及指针那一次写恰好崩了。
+ * ⚠ 不许把"读不到"当成"远端是空的" —— 那正是"对面的删除永远拉不下来"那一类假象。
+ *
+ * 导出是因为 `snapshot-history.ts` 也要回答"最新是哪一版"。两处必须用同一份函数：
+ * 只改一处，历史面板与引擎对"最新"的理解就会分叉，表现为"面板列出的最新版比同步
+ * 实际用的那一版新（或旧）"，而用户只能靠猜。
+ */
+export async function readPointer(
+  deps: { webdav: WebDavPort },
+  base: URL,
+  credential: WebDavCredential,
+): Promise<SyncPointer | undefined> {
+  const text = await deps.webdav.get(pointerUrl(base).href, credential).catch(() => undefined);
+  if (text === undefined) return undefined;
+  try {
+    const verified = verifyPointer(await decodeWire(text));
+    return verified.ok ? verified.pointer : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 按 revision 取那一版 manifest。取不到 = manifest 坏了或还没写，调用方退回扫目录。
+ * 与 `readPointer` 一起导出：历史面板要的"那一版到底有哪些条目"必须由同一条读取路径拿到。
+ */
+export async function fetchManifest(
+  deps: { webdav: WebDavPort },
+  base: URL,
+  revision: number,
+  credential: WebDavCredential,
+): Promise<SyncManifest | undefined> {
+  const text = await deps.webdav.get(manifestUrl(base, revision).href, credential).catch(() => undefined);
+  if (text === undefined) return undefined;
+  try {
+    const verified = verifyManifest(await decodeWire(text));
+    return verified.ok ? verified.manifest : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function readRemoteView(deps: SyncDeps, base: URL, credential: WebDavCredential): Promise<RemoteView> {
+  /**
+   * ★ 第一步读指针。命中就完全不碰目录列举 —— 省掉一次 PROPFIND，
+   * 而且从此与"目录里攒了多少文件"再无关系（那正是 750 条那一档的来源）。
+   */
+  const pointer = await readPointer(deps, base, credential);
+  if (pointer) {
+    const manifest = await fetchManifest(deps, base, pointer.revision, credential);
+    const snapshot = await fetchSnapshot(deps, base, manifest?.latestSnapshotId ?? pointer.snapshotId, credential);
+    if (snapshot) {
+      return {
+        snapshot,
+        ...(manifest ? { manifest } : {}),
+        rebuilt: false,
+        // 指针与快照自己都说自己是哪一版，取高的那个：与下面 `observedRevision` 同一条理由，
+        // revision 是用来生成下一个文件名的，低了就撞名。
+        observedRevision: Math.max(pointer.revision, snapshot.revision),
+      };
+    }
+    // 指针指的快照读不出来 ⇒ 落进下面的扫目录重建。不能就地当"远端没有东西"。
+  }
+
   const manifestUrlList = await deps.webdav.propfind(manifestsDirUrl(base).href, credential, 1).catch(() => []);
+  if (!listingIsTrusted(manifestUrlList)) {
+    throw new WebDavError(
+      'bad-response',
+      'PROPFIND',
+      manifestsDirUrl(base).href,
+      207,
+      `manifests/ 一次列举就拿满了 ${TRUSTED_LISTING_LIMIT} 条，无法确定哪一版才是最新的；`
+      + '指针文件读不到，所以这一轮拒绝猜测（远端历史需要在设置页手动清理，或等指针恢复）',
+    );
+  }
   const candidates = manifestUrlList
     .filter((entry) => entry.exists && revisionFromUrl(entry.url) !== null)
     .sort((a, b) => (revisionFromUrl(b.url) ?? 0) - (revisionFromUrl(a.url) ?? 0));
@@ -159,7 +249,7 @@ async function readRemoteView(deps: SyncDeps, base: URL, credential: WebDavCrede
     if (text === undefined) continue;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = await decodeWire(text);
     } catch {
       continue; // 半截的 manifest：跳过，去试下一个更旧的，而不是同步失败
     }
@@ -175,6 +265,15 @@ async function readRemoteView(deps: SyncDeps, base: URL, credential: WebDavCrede
   // 重建路径。**必须 catch**：第一次同步时远端连目录都还没有，propfind 回 404 ——
   // 那是"空库"这个正常状态，不是故障。少了这一层，全新用户的第一次同步会当场抛出去。
   const listing = await deps.webdav.propfind(snapshotsDirUrl(base).href, credential, 1).catch(() => []);
+  if (!listingIsTrusted(listing)) {
+    throw new WebDavError(
+      'bad-response',
+      'PROPFIND',
+      snapshotsDirUrl(base).href,
+      207,
+      `snapshots/ 一次列举就拿满了 ${TRUSTED_LISTING_LIMIT} 条，重建路径无法确定哪一版是最新的，这一轮拒绝猜测`,
+    );
+  }
   const ids = listing
     .filter((entry) => entry.exists && snapshotIdFromUrl(entry.url) !== null)
     .map((entry) => snapshotIdFromUrl(entry.url) as string);
@@ -209,7 +308,12 @@ async function readLatestManifestPointer(
   base: URL,
   credential: WebDavCredential,
 ): Promise<{ snapshotId: string; revision: number } | undefined> {
+  /** ★ 一个 GET 就够：省流量那条判据原来要一次 PROPFIND + 一次 manifest 下载。 */
+  const pointer = await readPointer(deps, base, credential);
+  if (pointer) return { snapshotId: pointer.snapshotId, revision: pointer.revision };
+
   const list = await deps.webdav.propfind(manifestsDirUrl(base).href, credential, 1).catch(() => []);
+  if (!listingIsTrusted(list)) return undefined; // 判不出最新是哪一版 ⇒ 退回完整路径，绝不猜
   const candidates = list
     .filter((entry) => entry.exists && revisionFromUrl(entry.url) !== null)
     .sort((a, b) => (revisionFromUrl(b.url) ?? 0) - (revisionFromUrl(a.url) ?? 0));
@@ -219,7 +323,7 @@ async function readLatestManifestPointer(
     if (text === undefined) continue;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = await decodeWire(text);
     } catch {
       continue;
     }
@@ -235,7 +339,7 @@ async function fetchSnapshot(deps: SyncDeps, base: URL, snapshotId: string, cred
   if (text === undefined) return undefined;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = await decodeWire(text);
   } catch {
     return undefined;
   }
@@ -257,6 +361,17 @@ function toManifest(snapshot: SyncSnapshot): SyncManifest {
       createdAt: snapshot.createdAt,
       stateChecksum: snapshot.stateChecksum,
     }],
+    /**
+     * 重建路径也要给出设备表，否则"manifest 丢了扫目录重建"这一走
+     * 就把对面那台设备的名字弄没了 —— 冲突面板当场退回显示 UUID 前 8 位，
+     * 而这正是这次要修的那个现象。来源只能是快照自己带的这三个数。
+     *
+     * ⚠ 老快照没有 `deviceName` ⇒ **不写这个键**，不编一个名字：
+     * 名字是用户起的，引擎没有权利用"另一台设备"这种话来冒充他看见过。
+     */
+    ...(snapshot.deviceName === undefined
+      ? {}
+      : { devices: [{ id: snapshot.deviceId, name: snapshot.deviceName, updatedAt: snapshot.createdAt }] }),
   });
 }
 
@@ -283,6 +398,29 @@ async function applyMergedState(deps: SyncDeps, merged: StoredState): Promise<vo
 }
 
 /**
+ * 删除方那台设备的友好名。纯函数：只读传进来的那两个来路，不查存储、不碰网络。
+ *
+ * 两个来路按可靠性排：
+ * 1. **manifest 的设备表** —— 那是所有参与设备各自写进来的名字（`mergeDeviceTables` 合并过），
+ *    一台设备可能推过多版，它的名字因此比"这一版快照恰好带的"更全。
+ * 2. **远端那一版自带的 `deviceName`** —— 只在这版确实是它写的（`deviceId` 对得上）时才作数。
+ *
+ * 解析不到就返回 `undefined`，**不编一个名字**：名字是用户自己起的，
+ * 引擎拿"另一台设备"这种话去冒充它，比 UI 回退显示 UUID 前 8 位更坏 —— 前者看起来像真知道，
+ * 后者一眼就看得出是机器身份。回退那一支在 `components/ConflictPanel.vue`。
+ *
+ * 只在这里写一份：`pendingConflicts` 那一段按冲突逐条调它，第二条来路的判据（`deviceId` 相等）
+ * 一旦在两处分别落地，就会出现"同一台设备在同一个面板里有两种说法"。
+ */
+function resolveDeviceName(deviceId: string, remote: RemoteView): string | undefined {
+  const fromTable = nameOfDevice(remote.manifest?.devices, deviceId);
+  if (fromTable) return fromTable;
+  const snapshot = remote.snapshot;
+  if (snapshot && snapshot.deviceId === deviceId && snapshot.deviceName) return snapshot.deviceName;
+  return undefined;
+}
+
+/**
  * 一次完整同步。它**不抛**：所有失败都编进返回值，
  * 因为调用方是 background 的节拍与 UI 按钮，两处都不该因为网络抖动炸掉。
  *
@@ -297,34 +435,102 @@ export async function runSync(
   trigger: SyncTriggerReason = 'manual',
 ): Promise<SyncOutcome> {
   const storage = deps.storage;
+
+  /**
+   * 同步事件日志的唯一写入口。
+   *
+   * 三条口径，都是被这条线自己的历史逼出来的：
+   * - **只记状态变化类出口**。`no-changes`（查了没变化）与 `backoff`（退避中）一条都不写：
+   *   页面开着时心跳 60 秒一轮、空闲也照样跑"查了没变化"，全记的话环 100 在 ≈100 分钟里
+   *   被填满、真事件被挤出去。"引擎活着"的证据由状态行的"上次同步"承担，不归日志。
+   * - **一次 `runSync` 一条主事件**，kind 由最终出口定，合并信息进 summary。
+   * - **不进任何判据**：下面每一个分支都是"先把这一轮的结论算完，再把它记下来"，
+   *   反过来（读日志来决定要不要推）就是第二个真相。写失败也永不影响这一轮
+   *   （`appendSyncEvent` 自己 catch，见 `infrastructure/storage/wxt-storage.ts`）。
+   *
+   * `at` 用这一轮的时刻而不是 `Date.now()`：日志与账本必须说同一个时间，
+   * 否则排查时"日志里那次失败"对不上账本里的 `lastError.at`，这两份证据就互相作废。
+   */
+  const logEvent = (kind: SyncEventKind, success: boolean, summary?: string): Promise<unknown> =>
+    storage.appendSyncEvent({ kind, success, trigger, summary }, at);
+
   const config = await storage.getWebDavConfig();
   if (!config.enabled) {
     await storage.setSyncMeta({ ...(await storage.getSyncMeta()), status: 'disabled' });
+    // 不记：同步没开着，这不是引擎的事件。
     return { status: 'disabled', skip: 'disabled' };
   }
 
   const parsed = parseBaseUrl(config.baseUrl);
   if (!parsed.ok) {
+    await logEvent('error', false, 'err:bad-url');
     return { status: 'error', skip: 'bad-base-url', error: { kind: 'unknown', message: `WebDAV 地址无效：${parsed.reason}` } };
   }
   const base = parsed.url;
 
   const stored = await storage.getSyncCredential();
   if (!stored) {
+    await logEvent('error', false, 'err:no-credential');
     return { status: 'error', skip: 'no-credential', error: { kind: 'credentials', message: '没有保存的密码' } };
   }
   const credential: WebDavCredential = { username: config.username, password: stored.password };
 
   const meta = await storage.getSyncMeta();
   if (meta.nextAttemptAt !== undefined && at < meta.nextAttemptAt) {
+    // ★ 空转出口，**一条都不写**（既有约定 对方案 §6.1 映射表的那处修正）。
     return { status: meta.status === 'idle' ? 'pending' : meta.status, skip: 'backoff' };
   }
+
+  /**
+   * 塌陷闸的一次性授权，**读完即消费**。
+   *
+   * 放在退避之后是刻意的：退避中的这一轮根本走不到闸前，在这里之前消费就等于把用户
+   * 那一次点击白白吃掉。
+   *
+   * 直接改本地这份 `meta` 对象，不只是改存储：下面每一处 `setSyncMeta({ ...meta, ... })`
+   * 摊的都是它，只清存储不清这个对象，本轮任何一次写入都会把它原样带回去。
+   */
+  const suspiciousAck = meta.suspiciousAckChecksum;
+  if (suspiciousAck !== undefined) {
+    meta.suspiciousAckChecksum = undefined;
+    await storage.setSyncMeta(meta);
+  }
+
+  /**
+   * 失败收场**唯一一份**：加连续失败数、设退避、落 lastError，本地数据一条都不改（§19）。
+   * 读远端与推送两处共用 —— 原来这个形状只在推送那一段有，
+   * 于是 既有约定 新加的"读远端也会失败"那一条只能另抄一份，而另抄的那份迟早分叉。
+   */
+  const failOver = async (error: unknown) => {
+    const kind = error instanceof WebDavError ? error.kind : ('unknown' as const);
+    const message = error instanceof Error ? error.message : String(error);
+    const failures = meta.consecutiveFailures + 1;
+    // 记在写账本**之前**：设置页的日志区是订阅 `watchSyncMeta` 刷新的，
+    // 反过来写就会出现"面板被这一轮唤起了、列表里却没有这一轮"的那一拍。
+    await logEvent('error', false, `err:${kind}`);
+    await storage.setSyncMeta({
+      ...meta,
+      status: 'error',
+      consecutiveFailures: failures,
+      nextAttemptAt: at + backoffDelayMs(failures),
+      lastError: { kind, message, at },
+      dirtySinceAt: meta.dirtySinceAt ?? at,
+    });
+    return {
+      status: 'error' as const,
+      error: { kind, message },
+    };
+  };
 
   const local = await readStoredState(deps);
   const inspected = inspectLocalState(local);
   if (!inspected.ok) {
     // 规则 C/D：禁止同步，且**不改动本地任何东西**。这里没有可确认的东西 ——
     // 让用户点"保留本地"等于把一坨解析不了的数据当真本。
+    //
+    // 事件走 `error` + `err:invalid-local:<原因>`，**不新立第六个 kind**：
+    // 它对用户的含义就是"这一轮失败了"，区别只在原因。
+    await logEvent('error', false, `err:invalid-local:${inspected.reason}`);
     await storage.setSyncMeta({ ...meta, status: 'error', lastError: { kind: 'invalid-local-state', message: inspected.reason, at } });
     return { status: 'error', blocked: { reason: inspected.reason } };
   }
@@ -355,17 +561,40 @@ export async function runSync(
         lastError: undefined,
         lastTrigger: trigger,
       });
+      // ★ 空转出口，**一条都不写**。这一支是"指针说还是那一版、本机也没改"，
+      // 后台 alarm 与页面心跳绝大多数轮都走在这里。
       return { status: 'idle', skip: 'no-changes' };
     }
   }
 
-  const remote = await readRemoteView(deps, base, credential);
+  /**
+   * ★ 读远端这一步的失败**必须走同一条收场**，不能裸抛。
+   *
+   * 既有约定 给 `readRemoteView` 添了一条会主动抛的判据：一次列举拿满 750 条 ⇒ 拒绝猜
+   * "最新是哪一版"（猜错会算出一个已被占用的 revision 文件名，把别人那一版的指针盖掉）。
+   * 这里原来没有 catch：那一抛会穿过 `runSync` 交给 background，于是连续失败数不加、
+   * 退避不设、`lastError` 不落 —— 用户看到的正是这套设计最不该出现的一幕：
+   * 「点了没反应，也没说为什么」。
+   */
+  let remote: RemoteView;
+  try {
+    remote = await readRemoteView(deps, base, credential);
+  } catch (error) {
+    return await failOver(error);
+  }
   const remoteState = remote.snapshot?.state;
 
   const deviceId = await storage.getDeviceId();
   let remoteMerged: StoredState | undefined;
   let conflicts: DeleteVsEditConflict[] = [];
   let pulledRevision: number | undefined;
+  /**
+   * 这一轮从远端**收下了多少条**会话（`mergeStates` 的 `applied.keptFromRemote`）。
+   *
+   * 单独留一个数是因为事件日志要带它（既有约定 的 `merged:<n>`），而 `merged` 对象在这个
+   * `if` 块结束就没了。它是"发生了什么"，不是"还剩多少" —— 与 `applied` 其余几个数同一个口径。
+   */
+  let mergedFromRemote: number | undefined;
 
   if (remote.snapshot && remote.snapshot.stateChecksum !== localChecksum) {
     // 两边内容不同 ⇒ 先合并再推。直接推会把远端那一版的改动盖掉（§10「不静默覆盖」）。
@@ -373,11 +602,13 @@ export async function runSync(
     conflicts = merged.conflicts;
     await applyMergedState(deps, merged.state);
     remoteMerged = merged.state;
+    mergedFromRemote = merged.applied.keptFromRemote;
     pulledRevision = remote.snapshot.revision;
     if (conflicts.length > 0) {
       // 有实体级撞车就**不推**：合并结果里还带着没定案的东西，推上去等于替用户做了决定。
       // 冲突必须落盘再返回：跑这次同步的是 background，看冲突的是某个页面上的对话框。
       // 只放在返回值里，用户一切页面冲突就没人知道了，而同步会一直静默停在 conflict。
+      await logEvent('conflict', false, `conflicts:${conflicts.length}`);
       await storage.setSyncMeta({
         ...meta,
         status: 'conflict',
@@ -385,13 +616,22 @@ export async function runSync(
         // 这一版确实读到过 ⇒ 下一轮的"跳过下载"认这个文件名
         lastSeenSnapshotId: remote.snapshot.snapshotId,
         lastTrigger: trigger,
-        pendingConflicts: conflicts.map((conflict) => ({
-          groupId: conflict.groupId,
-          deletedAt: conflict.deletedAt,
-          editedAt: conflict.editedAt,
-          deletedByDeviceId: conflict.deletedByDeviceId,
-          deleteReason: conflict.deleteReason,
-        })),
+        pendingConflicts: conflicts.map((conflict) => {
+          // 名字在**落账那一刻**解析：对话框读的是账，它不会再去看远端 manifest，
+          // 所以"这一版远端里能不能认出那台设备"只有现在答得出来。
+          const deletedByName = resolveDeviceName(conflict.deletedByDeviceId, remote);
+          return {
+            groupId: conflict.groupId,
+            // 标题在落账时抄一份：见 `StoredConflict.groupTitle`（面板那侧不再依赖本机有没有这条）
+            groupTitle: conflict.group.title,
+            deletedAt: conflict.deletedAt,
+            editedAt: conflict.editedAt,
+            deletedByDeviceId: conflict.deletedByDeviceId,
+            deleteReason: conflict.deleteReason,
+            // 解析不到就**不写这个键**（不是空串、不是"另一台设备"），见 `resolveDeviceName` 那条
+            ...(deletedByName === undefined ? {} : { deletedByName }),
+          };
+        }),
       });
       return { status: 'conflict', pulled: { revision: remote.snapshot.revision, conflicts }, manifestRebuilt: remote.rebuilt };
     }
@@ -405,6 +645,17 @@ export async function runSync(
   const outgoingChecksum = outgoing === local ? localChecksum : await stateChecksumOf(outgoing);
 
   if (remote.snapshot?.stateChecksum === outgoingChecksum) {
+    /**
+     * 这一支里面其实藏着**两种完全不同的轮次**，日志只记其中一种：
+     * - `mergedFromRemote === undefined` ⇒ 没合并过，本机内容与远端**本来就一致** ⇒ 空转，一条不写。
+     * - 有值 ⇒ 上面那段合并真的把远端的改动落到本机了，只是结果恰好与远端同形（所以没东西可推）。
+     *   本机**已经变了**，这不是空转 ⇒ 记一条 `pull`。
+     *
+     * 区分靠 `mergedFromRemote` 这个既有事实，不新加判据、也不改这一轮的结论。
+     */
+    if (mergedFromRemote !== undefined) {
+      await logEvent('pull', true, `merged:${mergedFromRemote}`);
+    }
     await storage.setSyncMeta({
       ...meta,
       status: 'idle',
@@ -417,6 +668,8 @@ export async function runSync(
       lastPushedRevision: Math.max(meta.lastPushedRevision, remoteRevision),
       lastSeenSnapshotId: remote.snapshot?.snapshotId ?? meta.lastSeenSnapshotId,
       lastTrigger: trigger,
+      // 两边内容已经一致 ⇒ 没有任何停在闸前的那一版了
+      suspiciousOutgoingChecksum: undefined,
     });
     return { status: 'idle', skip: 'no-changes', manifestRebuilt: remote.rebuilt };
   }
@@ -441,11 +694,32 @@ export async function runSync(
   if (!verdict.ok && verdict.kind === 'blocked') {
     // 到这一步不该出现（上面 `inspectLocalState` 已经过了），留着是因为它过了类型这一关：
     // 真出现就是"合并算出一个本地读不出来的形状"，那是引擎自己的错，不许当成可疑等用户确认。
+    await logEvent('error', false, `err:invalid-local:${verdict.reason}`);
     await storage.setSyncMeta({ ...meta, status: 'error', lastError: { kind: 'invalid-local-state', message: verdict.reason, at } });
     return { status: 'error', blocked: { reason: verdict.reason } };
   }
-  if (!verdict.ok) {
-    await storage.setSyncMeta({ ...meta, status: 'suspicious_change', lastTrigger: trigger });
+  /**
+   * ★ 出口：用户核对过数字并明确放行了**这一版内容**，就照推。
+   *
+   * 这一格补的是 `safety.ts` 那个判别联合注释里承诺了却一直没有的东西（"挂起，等用户在 UI 上
+   * 选恢复云端 / 保留本地 / 查看差异"）。既有约定 把闸挪到合并之后只救回了**拉**的方向；
+   * 推的方向在此之前是死的 —— 远端 25 组、本机带墓碑删光，规则 A 每轮都成立、永远推不出去，
+   * 而用户唯一的出路是撤回删除或清空远端历史（后者正是这道闸要防的事）。
+   *
+   * 只放行 `suspicious`，**不放行 `blocked`**：规则 C/D 是"本地状态本身不可信"，
+   * 那一份数据连自己有多少条都答不准，没有任何可供用户确认的东西（上面那条注释已经写了）。
+   * 授权按 `outgoingChecksum` 认，所以内容一变就对不上号、闸会重新报数。
+   */
+  const acknowledged = suspiciousAck !== undefined && suspiciousAck === outgoingChecksum;
+  if (!verdict.ok && !acknowledged) {
+    await logEvent('suspicious', false, 'suspicious');
+    await storage.setSyncMeta({
+      ...meta,
+      status: 'suspicious_change',
+      lastTrigger: trigger,
+      // 记下"用户如果要点确认，他授权的是哪一版"：点按钮的是另一个进程，只能靠账本对话。
+      suspiciousOutgoingChecksum: outgoingChecksum,
+    });
     return {
       status: 'suspicious_change',
       suspicious: { rules: verdict.rules, counts: verdict.counts },
@@ -456,6 +730,9 @@ export async function runSync(
   // 先把这一版落成耐久快照再推：推的东西在本地没有可恢复的副本，是 §20 明令防的事
   const captured = await captureDurableSnapshot(deps, at);
   if (!captured.ok) {
+    // 这一支没走 `failOver`：连续失败数与退避都不该由"本机盘写不进去"来累加，
+    // 但它是实打实的失败出口，所以日志照记（判别值用自己的名字，不冒充 WebDAV 的 kind）。
+    await logEvent('error', false, 'err:durable-snapshot');
     await storage.setSyncMeta({ ...meta, status: 'error', lastError: { kind: 'unknown', message: captured.reason, at } });
     return { status: 'error', error: { kind: 'unknown', message: `本地快照写入失败：${captured.reason}` } };
   }
@@ -471,13 +748,22 @@ export async function runSync(
     createdAt: at,
     ...(remote.snapshot ? { baseSnapshotId: remote.snapshot.snapshotId } : {}),
   });
+  /**
+   * ★ 把**本机设备名**押在这份快照上带出去（既有约定 的"发货端"）。
+   *
+   * 读侧早就有了（冲突面板拿 `deletedByName`、`nameOfDevice` 解 manifest 设备表），
+   * 但推送一直只写 `deviceId` —— 于是名字从来没有上线过，对面能解析的名字只能来自
+   * "从快照重建 manifest"那一条少数路径。类型写了、函数写了、调用点为 0：那是死字段加假接通。
+   * 它不参与 `stateChecksum`（那个只盖 `state`），所以加这一格不破内容寻址去重。
+   */
+  snapshot.deviceName = (await storage.getDeviceProfile()).name;
 
   try {
     await deps.webdav.ensureCollection(snapshotsDirUrl(base).href, credential);
     await deps.webdav.ensureCollection(manifestsDirUrl(base).href, credential);
     try {
       // If-None-Match: * —— 撞上了就是"这一份内容已经在远端了"
-      await deps.webdav.put(snapshotUrl(base, snapshotId).href, JSON.stringify(snapshot), credential, { ifNoneMatch: '*' });
+      await deps.webdav.put(snapshotUrl(base, snapshotId).href, await encodeWire(snapshot), credential, { ifNoneMatch: '*' });
     } catch (error) {
       /**
        * 快照那一步的 412 是**成功**，不是失败：文件名由内容决定，所以 412 的意思
@@ -490,10 +776,34 @@ export async function runSync(
       if (!alreadyThere) throw error;
     }
 
-    const history = [
+    const ledger = [
       { snapshotId, revision, deviceId, createdAt: at, stateChecksum: snapshot.stateChecksum },
       ...(remote.manifest?.history ?? []),
-    ].slice(0, 200);
+    ];
+    /**
+     * 没注入 admin 的调用方**连账本都不裁**。
+     *
+     * 只裁不删是唯一一种会**制造隐形垃圾**的组合：文件还在网盘上、账本已经忘了它，
+     * 于是界面看不见、手动清理也扫不到，谁都不再记得。要么裁 + 删一起做，要么两件都不做。
+     * 生产两条路径（background 的五类节拍、面板那颗「立即同步」）都注入了 admin，
+     * 所以这一支实际只服务于"测试里只递 `{storage, webdav}`"的那种调用方。
+     */
+    const canPrune = deps.admin !== undefined;
+    const kept = canPrune ? ledger.slice(0, REMOTE_HISTORY_LIMIT) : ledger;
+    /**
+     * 滚出窗口、可以安全删掉的那几版。两格必须排除，都是"删掉自己正在用的东西"的形状：
+     * - **文件名是内容寻址的**：同一个 `state` 在不同 revision 上会留两条账、指向**同一个文件**
+     *   （改一改又改回来就是这一形）。旧的滚出窗口时删它，等于把还活着的那一版删了。
+     * - 这一轮刚推上去的那一版（`snapshotId` 一定在 `kept` 里，所以第一条已经盖住）。
+     */
+    const rolledOff = canPrune ? pickRolledOff(ledger, REMOTE_HISTORY_LIMIT) : [];
+    /**
+     * 删不掉的（网络抖、403、配额）要**留在账本里**，下一轮再试一次 ——
+     * 否则就落回上面那条"只裁不删"的隐形垃圾里。代价是账本这一刻会比窗口多几条，
+     * 下一轮删成就自己收回去。
+     */
+    const stillThere = await pruneRolledOff(deps, base, credential, rolledOff, REMOTE_RETENTION_MAX_DELETES);
+    const history = [...kept, ...stillThere];
     const deviceIds = [...new Set([...(remote.manifest?.deviceIds ?? []), deviceId])].sort();
     const manifest = buildManifest({
       latestRevision: revision,
@@ -501,23 +811,68 @@ export async function runSync(
       updatedAt: at,
       deviceIds,
       history,
+      /**
+       * ★ 设备表：对面那一版留下的条目 + 本机这一条，`mergeDeviceTables` 合并
+       * （既有约定 的"发货端"第二半）。这一步之前 `mergeDeviceTables` 是**被 import 但
+       * 没有任何调用点**的函数 —— 名字合并在两端各自算不出同一张表，冲突面板就只能回退到 UUID 前缀。
+       * 结果按 id 排序 ⇒ A 算与 B 算逐字节一致，与 `merge.ts` 同一条可交换性要求。
+       */
+      devices: mergeDeviceTables(remote.manifest?.devices ?? [], [
+        { id: deviceId, name: snapshot.deviceName ?? deviceId, updatedAt: at },
+      ]),
     });
-    await deps.webdav.put(manifestUrl(base, revision).href, JSON.stringify(manifest), credential);
+    /**
+     * manifest 按 revision 命名、不可变，所以它和快照一样用 `If-None-Match: *`
+     * （既有约定，**修订** 既有约定 §"还没闭合的"第 5 条那一句"不是 bug 而是被接受的设计"）。
+     *
+     * 原来这一笔什么条件头都不带：两台设备同时读到账本、同时算出 `revision-N`，
+     * 后写的直接把先写那一版的 manifest 盖掉。§5 当时接受的是"多推了一版"，
+     * 真相比那糟一点 —— 输的那一版从指针里消失，要等它自己再推一次才回来。
+     *
+     * 撞了（412）只有两种可能，读一眼那一版是谁写的就分得开：
+     * - **是我们自己写的**：上一轮 manifest 落成了、指针那一步崩了 ⇒ 只补指针。
+     *   这一支让"指针写失败"是**可自愈**的，而不是从此每轮都撞一次。
+     * - **是别人写的**：这一版号被抢了 ⇒ 本轮就此收手报错。下一轮重新读远端，
+     *   按 N+1 算（`remoteRevision` 来自 `Math.max(快照.revision, observedRevision)`），
+     *   退避与 60 秒节拍自然会把它送到。
+     *
+     * ⚠ 这里**不在本轮内 bump 重试**，比我原先说的"重试上限 2 次"更简单，而且不是偷懒：
+     * 快照文件里写着它自己的 `revision`，换号就得重写快照文件 —— 而 `snapshotId` 是按
+     * `state` 的 checksum 算的、不含 revision，于是同一个文件名上会出现两份不同内容，
+     * 正好撞上不可变那一条。把重试推给下一轮（重新读、重新算、重新构造），一次就都不矛盾。
+     */
+    try {
+      await deps.webdav.put(manifestUrl(base, revision).href, await encodeWire(manifest), credential, { ifNoneMatch: '*' });
+    } catch (error) {
+      if (!(error instanceof WebDavError) || error.kind !== 'precondition-failed') throw error;
+      const held = await fetchManifest(deps, base, revision, credential);
+      if (!held || held.latestSnapshotId !== snapshotId) throw error;
+      // 那一版就是我们自己的 ⇒ 这一笔已经成了，只差指针没跟上。继续往下补指针。
+    }
+
+    /**
+     * 指针**最后**写：在它成功之前别的设备读到的还是旧的那一版，
+     * 于是它们撞上同一个 revision 号时，上面那一支会把我们这一版认出来，而不是盖掉它。
+     */
+    await deps.webdav.put(pointerUrl(base).href, await encodeWire(buildPointer({
+      revision,
+      snapshotId,
+      updatedAt: at,
+    })), credential);
   } catch (error) {
-    const kind = error instanceof WebDavError ? error.kind : 'unknown';
-    const message = error instanceof Error ? error.message : String(error);
-    const failures = meta.consecutiveFailures + 1;
-    await storage.setSyncMeta({
-      ...meta,
-      status: 'error',
-      consecutiveFailures: failures,
-      nextAttemptAt: at + backoffDelayMs(failures),
-      lastError: { kind, message, at },
-      dirtySinceAt: meta.dirtySinceAt ?? at,
-    });
-    // 本地数据一条都不改。§19「WebDAV 401 只报错，不改本地数据」是这一行的返回值决定的。
-    return { status: 'error', error: { kind, message } };
+    // 本地数据一条都不改。§19「WebDAV 401 只报错，不改本地数据」由 `failOver` 的返回值决定。
+    return await failOver(error);
   }
+
+  /**
+   * 推送成功的摘要：主判别值 `R<revision>`，这一轮真合并过就把条数并进**同一条**
+   * summary（`R12 · merged:3`）。kind 由最终出口定 —— 合并过也仍是 `push`，不是第二条事件。
+   */
+  await logEvent(
+    'push',
+    true,
+    mergedFromRemote === undefined ? `R${revision}` : `R${revision} · merged:${mergedFromRemote}`,
+  );
 
   await storage.setSyncMeta({
     ...meta,
@@ -535,6 +890,9 @@ export async function runSync(
     lastTrigger: trigger,
     // 推成功后清冲突账：走到这里说明这一版没有任何没定案的东西被推上去
     pendingConflicts: undefined,
+    // 这一版已经上云 ⇒ 塌陷闸那两格（停在闸前的是哪一版 / 用户的放行）都作废
+    suspiciousOutgoingChecksum: undefined,
+    suspiciousAckChecksum: undefined,
   });
 
   return {
@@ -624,6 +982,99 @@ export async function resolveConflict(
   });
 }
 
+/**
+ * 用户在设置页点了「我核对过了，这一版照推」（既有约定，塌陷闸的出口）。
+ *
+ * 与 `resolveConflict` 同一形状：只写账本、把状态转成 `pending`，推送交给下一轮 `requestSync`
+ * （既有约定：这里不许直接调 `runSync`，否则就成了绕过判据的后门）。
+ *
+ * 两处与 `resolveConflict` 刻意的不同：
+ * 1. **不碰 `dirtySinceAt`**。裁决冲突是一次真实的本地改动（它可能软删一个会话），
+ *    而确认塌陷不是 —— 本地一个字节都没变，变的只是"这一版准不准上云"。
+ *    跟着写 `?? at` 会白白吃一次 3 秒去抖，用户点完立刻看到"本轮未发起"，
+ *    而这颗按钮的全部意义就是解开一个死结。
+ * 2. 授权按 `suspiciousOutgoingChecksum` 认，即"用户看过那四个数字的那一版内容"。
+ *
+ * 返回 `false` = 账本里没有可确认的那一版（例如页面开着的时候一轮新同步已经改写了状态）。
+ * UI 要据此说一句真话，不能假装点成功了。
+ */
+export async function acknowledgeSuspiciousChange(deps: SyncDeps): Promise<boolean> {
+  const meta = await deps.storage.getSyncMeta();
+  const target = meta.suspiciousOutgoingChecksum;
+  if (target === undefined) return false;
+  await deps.storage.setSyncMeta({
+    ...meta,
+    suspiciousAckChecksum: target,
+    status: 'pending',
+  });
+  return true;
+}
+
+/**
+ * 账本滚出保留窗口、且**可以安全删掉**的那几版。
+ *
+ * 排除条件是这条判据的全部难点所在：快照文件名是**内容寻址**的，所以同一个 `snapshotId`
+ * 可以在账本上出现两次（改一改又改回来 ⇒ revision 不同、`state` 相同 ⇒ 同一个文件）。
+ * 旧的那条滚出窗口时把它对应的文件删掉，等于把窗口里还活着的那一版删了 ——
+ * 表现是"我明明列出来的那一版，点恢复说文件不存在"。
+ *
+ * 单独成函数是为了能用小窗口测：常量是 100，为一格排除条件推 105 版再改内容回来，
+ * 那条用例既慢又难读。真实窗口由 `sync-engine.spec.ts` 的集成用例钉一次。
+ */
+export function pickRolledOff(ledger: ManifestEntry[], limit: number): ManifestEntry[] {
+  const keptIds = new Set(ledger.slice(0, limit).map((entry) => entry.snapshotId));
+  return ledger.slice(limit).filter((entry) => !keptIds.has(entry.snapshotId));
+}
+
+/**
+ * 把滚出保留窗口的那几版从网盘上删掉，返回**没删掉**的那些。
+ *
+ * 每一版删两个文件：快照本体 + 那一版的 `manifests/revision-N.json`。
+ * 后者也要删，否则 `manifests/` 会一直长 —— 坚果云单次列举只回 750 条，
+ * 指针文件哪天丢了、要扫目录重建"最新是哪一版"时，一个撑爆的目录会让那次重建直接不可信。
+ *
+ * ⚠ 只在**推送已经成功之后**调用，而且只删账本自己交出去的那些：
+ * 反过来（按目录列举做差集去删）会删掉另一台设备刚推上去、manifest 还没落成的那一版 ——
+ * 那是静默丢数据，比留几个孤儿文件坏得多。
+ *
+ * 删除失败一律不冒泡：这一轮的同步已经成了，数据是安全的，
+ * 保留策略晚一轮再试就够了。没删掉的由调用方留在账本里。
+ *
+ * 单独导出是为了能用**小窗口**测：真实的上限是 20，而要让一条滚出窗口得先攒够 100 版，
+ * 那种用例（`sync-engine.spec.ts` 里的存量那一笔）钉的是"真常量下确实只发 40 个 DELETE"，
+ * 钉不动"上限之内谁留下、谁交回账本"这一格 —— 那需要一份能逐字控制的名单。
+ */
+export async function pruneRolledOff(
+  deps: SyncDeps,
+  base: URL,
+  credential: WebDavCredential,
+  rolledOff: ManifestEntry[],
+  maxDeletes: number,
+): Promise<ManifestEntry[]> {
+  if (deps.admin === undefined || rolledOff.length === 0) return rolledOff;
+  /**
+   * 一轮最多删 `maxDeletes` 条，**删掉的是最旧的那几条**（`rolledOff` 是账本尾部、
+   * 账本新在前，所以最旧的在数组末尾 ⇒ `slice(length - maxDeletes)` 取到的就是最旧的一批）。
+   * 靠近窗口的那几条留到下一轮 —— 它们本来就是"最晚变成垃圾"的，先还这一头没人看得出来。
+   *
+   * 交回调用方的那一份保持**从新到旧**：先是没有轮到的（`deferred`，天然在 doomed 之前），
+   * 再是这一批里没删成的。账本靠位置切窗口（`kept = ledger.slice(0, limit)`），
+   * 所以这个顺序不能乱 —— 一旦乱成"新的排在后面"，下一轮被裁掉的会是**较新的那一版**。
+   */
+  const doomed = rolledOff.slice(Math.max(0, rolledOff.length - maxDeletes));
+  const deferred = rolledOff.slice(0, Math.max(0, rolledOff.length - maxDeletes));
+  const survivors: ManifestEntry[] = [...deferred];
+  for (const entry of doomed) {
+    try {
+      await deps.admin.remove(snapshotUrl(base, entry.snapshotId).href, credential);
+      await deps.admin.remove(manifestUrl(base, entry.revision).href, credential);
+    } catch {
+      survivors.push(entry);
+    }
+  }
+  return survivors;
+}
+
 /** 供 background 用：本地数据变了就先只标脏，不做任何网络动作。 */
 export async function markDirty(deps: SyncDeps, at: number = now()): Promise<void> {
   const config = await deps.storage.getWebDavConfig();
@@ -637,11 +1088,25 @@ export async function markDirty(deps: SyncDeps, at: number = now()): Promise<voi
  *
  * 它是一次**本地写入**然后正常同步出去，不是"把远端那个文件指回最新"。
  * 差别很重要：后者会让中间那几百个快照变成孤儿，而用户想撤回恢复前的状态时就没处可撤了。
+ *
+ * ★ 落盘的是 `planRestore` 算出来的那一版**加了两件事**的样子：
+ * 带回来的每条把 `updatedAt` 抬到 `at`、现在多出来的每条留下墓碑。
+ * 直接把快照的 `state` 写下去是不够的 —— 那是这个按钮原来"闪一下又被冲回 35 条"的原因：
+ * 下一轮实体级 LWW 一看那一版每条都比现在旧，就把远端那版原样并回来了。
+ * 返回的四个数给界面，恢复完之后如实说一句"带回来几条、换掉几条"。
  */
-export async function restoreFromSnapshot(deps: SyncDeps, snapshot: SyncSnapshot, at: number = now()): Promise<void> {
-  await applyMergedState(deps, snapshot.state);
+export async function restoreFromSnapshot(
+  deps: SyncDeps,
+  snapshot: SyncSnapshot,
+  at: number = now(),
+): Promise<RestorePlanCounts> {
+  const current = await readStoredState(deps);
+  const deviceId = await deps.storage.getDeviceId();
+  const plan = planRestore({ current, restored: snapshot.state, deviceId, at });
+  await applyMergedState(deps, plan.state);
   await captureDurableSnapshot(deps, at);
   await markDirty(deps, at);
+  return plan.counts;
 }
 
 export type { Tombstone };

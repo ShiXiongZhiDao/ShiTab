@@ -29,6 +29,10 @@ function displayTitle(tab: SavedTab): string {
  *
  * 不可恢复的条目（`restorable=false`，比如 `chrome://` 页）**照样列出来** ——
  * 用户复制的是"我当时开着什么"，不是"哪些链接能点"；悄悄丢掉几条会更难解释。
+ *
+ * ⚠ 既有约定 之后**新收纳的会话里不会再有这种条目**（它们根本不进会话），
+ * 但这一条行为**一个字没改**：老会话、导入进来的备份、对面同步过来的载荷里都有，
+ * 而"列全"这件事对那批数据仍然是对的判断。所以这里不按 `restorable` 过滤，也不该按它过滤。
  */
 export function clipboardText(tabs: SavedTab[]): string {
   return inRestoreOrder(tabs).map((tab) => `${displayTitle(tab)}\n${tab.url}`).join('\n\n');

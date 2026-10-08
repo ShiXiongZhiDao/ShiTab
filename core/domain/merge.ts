@@ -24,6 +24,27 @@ import {
   recordsOf,
 } from '@/core/domain/trash-record';
 import type { Category, SavedTab, StoredState, TabGroup, Tombstone, TrashEntry, TrashRecordState } from '@/shared/types';
+import { canonicalizeState } from '@/core/domain/state-order';
+
+/**
+ * 这条墓碑是不是**上一次「恢复到某一版」留下的产物**（`reason === 'reverted'`，既有约定）。
+ * 名字故意用"是什么"而不是"要不要问"：判定与用法之间隔一次取反，就是今天写反的那处。
+ *
+ * 为什么这一种要自动判"保留"：`reverted` 墓碑不是用户删的东西，是上一次
+ * 「恢复到某一版」换掉那批会话时由**我们**写下的账。
+ * 他第二次点恢复（比如"还是回到最新那一版吧"）时，这些墓碑会把刚换回来的内容
+ * 一条条拦下来问"对面删了它，你确定要吗"—— 那是**拿旧动作否决新动作**，
+ * 而且自动判"保留"不丢任何数据：他刚刚明确点的就是"把这些换回来"。
+ * 既有约定 立这条判据的理由是"自动判错了就是一次静默丢数据"，这一格反过来说：
+ * **自动判"删除"才是丢数据**。
+ *
+ * ⚠ 边界：用户在恢复之后**自己**删了某条 ⇒ 那会写一条更新的 `user-delete` 墓碑，
+ * `newestTombstones` 按 key 取最新 ⇒ 那条墓碑覆盖掉 `reverted` 的 ⇒ 照旧问他。
+ * 用例「恢复之后用户再删掉同一条，仍然要问」钉的就是这条边界。
+ */
+function isRevertArtifact(tombstone: Tombstone): boolean {
+  return tombstone.reason === 'reverted';
+}
 
 /** 回收站载荷的读时兜底（键是可选的，见 `StoredState.trash`）。所有读侧都走这一个函数。 */
 export function trashOf(state: StoredState): TrashEntry[] {
@@ -301,6 +322,11 @@ export function mergeStates(input: { local: StoredState; remote: StoredState }):
       else applied.keptFromLocal += 1;
       // 两边都还在，但其中一边留了墓碑 ⇒ 那是"删了又改"，必须问用户
       if (tombstone) {
+        if (winner.updatedAt > tombstone.deletedAt && isRevertArtifact(tombstone)) {
+          // 例外：`reverted` 不是用户的删除（见上面的 `isRevertArtifact`）⇒ 直接留，不问
+          groups.set(id, remapGroup(winner));
+          continue;
+        }
         if (winner.updatedAt > tombstone.deletedAt) {
           conflicts.push({
             kind: 'delete-vs-edit',
@@ -327,6 +353,10 @@ export function mergeStates(input: { local: StoredState; remote: StoredState }):
     // 只有一边有这条会话，另一边**整个没有这个 id**：这可能是"另一边删了它"，
     // 也可能是"另一边根本没见过它"。墓碑是这两者的唯一区别，所以有墓碑就按删除处理。
     if (tombstone) {
+      if (solo.updatedAt > tombstone.deletedAt && isRevertArtifact(tombstone)) {
+        groups.set(id, remapGroup(solo));
+        continue;
+      }
       if (solo.updatedAt > tombstone.deletedAt) {
         conflicts.push({
           kind: 'delete-vs-edit',
@@ -353,13 +383,24 @@ export function mergeStates(input: { local: StoredState; remote: StoredState }):
   applied.unresolvedConflicts = conflicts.length;
 
   return {
-    state: {
-      groups: [...groups.values()].sort((a, b) => b.sortOrder - a.sortOrder || b.updatedAt - a.updatedAt),
+    /**
+     * ★ 顺序在这里定一次，之后不再动。
+     *
+     * `canonicalizeState` 与读侧的 `readStoredState` 是**同一个函数**，所以
+     * "这一轮推上去的那一版"与"下一轮从存储读回来的那一版"摘要必然相等。
+     * 这条等式不是锦上添花：它就是引擎那句"这台有没有东西要推"
+     * （`sync-engine.ts` 的 `remote.stateChecksum === outgoingChecksum`）成立的前提。
+     *
+     * 原来这一行自己排了一遍会话（`sortOrder` 降序 + `updatedAt` 兜底），而读侧根本不排
+     * —— 两套顺序 ⇒ 每台每轮都算出"我与远端不同" ⇒ 两台设备互相驱动着推。
+     */
+    state: canonicalizeState({
+      groups: [...groups.values()],
       categories,
       tombstones: tombstonesKept,
       // 回收站要排在墓碑之后：它的去留判据来自合并后的墓碑表。
       trash: mergeTrash(input, tombstoneMap),
-    },
+    }),
     conflicts,
     applied,
   };

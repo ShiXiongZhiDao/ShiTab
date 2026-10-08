@@ -10,12 +10,12 @@
 import { computed, ref } from 'vue';
 import { storagePort } from '@/shared/services';
 import { createWebDavPort } from '@/infrastructure/webdav/http-webdav';
-import { requestSync, markDirty, type SyncAttempt } from '@/core/application/sync-engine';
+import { acknowledgeSuspiciousChange, requestSync, markDirty, type SyncAttempt } from '@/core/application/sync-engine';
 import { nextCheckAt as nextCheckMoment } from '@/core/domain/sync-scheduler';
 import { parseBaseUrl, toOriginPattern, isInsecureHttp } from '@/core/domain/remote-layout';
 import type { MessageKey } from '@/shared/i18n';
-import type { WebDavPort } from '@/core/ports/webdav';
-import type { SyncMeta, WebDavConfig } from '@/shared/types';
+import type { WebDavAdminPort, WebDavPort } from '@/core/ports/webdav';
+import type { DeviceProfile, SyncMeta, WebDavConfig } from '@/shared/types';
 
 export interface SyncPanelState {
   config: WebDavConfig;
@@ -41,6 +41,8 @@ export type SyncNotice =
   | 'sync_notice_pushed'
   | 'sync_notice_nothing'
   | 'sync_notice_suspicious'
+  /** 点「照这一版上传」时账本里已经没有可确认的那一版（后台刚跑过一轮）⇒ 说一句真话，不假装点成功了 */
+  | 'sync_notice_suspicious_gone'
   | 'sync_notice_conflict'
   | 'sync_notice_failed'
   | 'sync_notice_saved'
@@ -59,23 +61,35 @@ export type SyncNotice =
   | 'sync_err_bad_url'
   | 'sync_err_generic';
 
-export interface SyncPanelOptions {  /**
+export interface SyncPanelOptions {
+  /**
    * 注入点。**默认用真的 fetch 适配器**，只有测试会传。
    *
    * 为什么要有它：`connect()` 一次点击里既存配置又同步，于是"点一下连接"这条 UI 用例
    * 第一次真的会走到发请求那一步 —— 没有这个口子，界面测试要么打真网络（不可接受），
    * 要么只能测到"没同步的那一半"（现有那批用例就是这样漏掉的）。
+   *
+   * ★ 类型是 `WebDavPort & WebDavAdminPort` 而不只是 `WebDavPort`：面板这条线也会推送，
+   * 而推送会把账本裁到保留窗口—— 只裁不删的话，网盘上留下的是
+   * 界面看不见、手动清理也扫不到的孤儿文件。所以**两条生产路径都得能执行删除**；
+   * 既有约定 那道"普通同步拿不到 `remove`"的类型闸留给不注入 admin 的调用方。
    */
-  webdav?: WebDavPort;
+  webdav?: WebDavPort & WebDavAdminPort;
 }
 
 export function useSyncPanel(options: SyncPanelOptions = {}) {
-  const webdav = (): WebDavPort => options.webdav ?? createWebDavPort();
+  const webdav = (): WebDavPort & WebDavAdminPort => options.webdav ?? createWebDavPort();
   const config = ref<WebDavConfig | null>(null);
   const meta = ref<SyncMeta | null>(null);
   const password = ref('');
   /** 远端已经存过一个密码。UI 用它决定"密码框留空 = 不改"还是"必须填"。 */
   const hasCredential = ref(false);
+  /**
+   * 本机设备档案。界面只显示它的 `name`，所以这里存整份档案而不是一个字符串：
+   * 名字被规范化之后（trim / 空名回退默认 / 40 字截断）要能**原样回填**输入框，
+   * 而那三个默认值用的 `browser`/`platform` 就在这份档案里。
+   */
+  const deviceProfile = ref<DeviceProfile | null>(null);
   /**
    * 正在跑的是**哪一颗**按钮。`null` = 空闲。
    *
@@ -108,6 +122,11 @@ export function useSyncPanel(options: SyncPanelOptions = {}) {
     config.value = await storagePort.getWebDavConfig();
     meta.value = await storagePort.getSyncMeta();
     hasCredential.value = (await storagePort.getSyncCredential()) !== undefined;
+    /**
+     * 档案是**懒生成**的（第一次读就落盘一份带默认名的），所以这里永远拿得到东西，
+     * 不需要"先判空再显示"那一支 —— 那一支会把这一行变成"配过 WebDAV 才出现"的错觉。
+     */
+    deviceProfile.value = await storagePort.getDeviceProfile();
     // 密码不回显：只回显"存过没有"。要改就重新填，这比把一个明文密码框留在页面上好。
     password.value = '';
     storagePort.watchSyncMeta((next) => {
@@ -284,7 +303,7 @@ export function useSyncPanel(options: SyncPanelOptions = {}) {
    * 一次 503 之后连点五下就是五次敲门。返回值也因此是 `SyncAttempt`（可能根本没跑）。
    */
   async function performSync(): Promise<SyncAttempt> {
-    return requestSync({ storage: storagePort, webdav: webdav() }, 'manual');
+    return requestSync({ storage: storagePort, webdav: webdav(), admin: webdav() }, 'manual');
   }
 
   async function syncNow(): Promise<SyncAttempt> {
@@ -298,7 +317,36 @@ export function useSyncPanel(options: SyncPanelOptions = {}) {
     }
   }
 
+  /**
+   * 改名。与 `acknowledgeSuspicious` 同一形状：只做那一件事，把结果交给调用方。
+   *
+   * 返回**落盘之后的那份档案**而不是传进去的那个串：规范化（trim / 空名回退默认 / 40 字截断）
+   * 在存储层一处，界面读回来才能显示"名字现在真的叫什么"。在这儿再 trim 一遍就是第二套规范，
+   * 两套迟早分叉，而症状是用户看见的一个名字、对面收到的是另一个。
+   *
+   * ⚠ 这里**不**碰 `markDirtyForUI`、也不发同步：设备名不进 `state`、不参与 checksum，
+   * 标脏只会白白催出一版内容完全相同的推送（存储层那条注释是同一件事的另一半）。
+   */
+  async function renameDevice(name: string): Promise<DeviceProfile> {
+    const next = await storagePort.setDeviceName(name);
+    deviceProfile.value = next;
+    return next;
+  }
+
   const enabled = computed(() => config.value?.enabled === true);
+
+  /**
+   * 塌陷闸的出口：用户核对过那四个数字，明确放行**这一版内容**。
+   *
+   * 它只写账本、一个请求都不发；推送仍由调用方接着走 `syncNow()`（既有约定 的唯一入口），
+   * 所以照样过退避与 in-flight —— 这颗按钮不是绕过判据的后门，它解的是另一个死结：
+   * 闸每轮都成立、于是永远推不出去。
+   *
+   * 返回 `false` = 账本里已经没有可确认的那一版（例如后台刚跑完一轮、内容也变了）。
+   */
+  async function acknowledgeSuspicious(): Promise<boolean> {
+    return acknowledgeSuspiciousChange({ storage: storagePort, webdav: webdav() });
+  }
 
   /**
    * 下一次自动检查大约在什么时候，给「立即同步」被拒时那句解释用。
@@ -316,6 +364,7 @@ export function useSyncPanel(options: SyncPanelOptions = {}) {
     meta,
     password,
     hasCredential,
+    deviceProfile,
     busy,
     pending,
     notice,
@@ -326,6 +375,8 @@ export function useSyncPanel(options: SyncPanelOptions = {}) {
     setEnabled,
     testConnection,
     syncNow,
+    acknowledgeSuspicious,
+    renameDevice,
     nextCheckAt,
     markDirtyForUI: () => markDirty({ storage: storagePort, webdav: webdav() }),
   };

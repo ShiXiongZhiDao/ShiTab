@@ -7,7 +7,7 @@
  * `shared/constants.ts` 里那个真值各写一份，而 checksum/格式校验的判据正是这两个必须同源。
  */
 
-import { MANIFEST_FORMAT, SNAPSHOT_FORMAT, STATE_FORMAT } from '@/shared/constants';
+import { MANIFEST_FORMAT, POINTER_FORMAT, SNAPSHOT_FORMAT, STATE_FORMAT } from '@/shared/constants';
 
 // ---------------------------------------------------------------------------
 // 持久化数据
@@ -39,7 +39,13 @@ export interface SavedTab {
   /** 收纳那一刻它是否是窗口的活动 tab（既有约定 用它把焦点还回去） */
   wasActive: boolean;
   closeState: CloseState;
-  /** 能否被 tabs.create 打开。必填，收纳时判定 */
+  /**
+   * 能否被 tabs.create 打开。必填，收纳时判定。
+   *
+   * 既有约定 之后**新收纳的记录这一格恒为 true** —— 判为 false 的那类页面根本不再进会话。
+   * 字段留着不是历史包袱：老会话、老备份、老同步载荷里都是 false 的行，
+   * 读侧（恢复、撤销、回收站、UI 上那句「无法直接恢复」）靠它认这些老数据（`isRecoverableRecord`）。
+   */
   restorable: boolean;
 }
 
@@ -261,7 +267,13 @@ export interface Tombstone {
   reason: DeleteReason;
 }
 
-export type DeleteReason = 'user-delete' | 'consumed' | 'undone';
+/**
+ * `'reverted'` 是 既有约定 加的第四种：它**不是用户删的**，是「恢复到某一版」这个动作把
+ * 「现在多出来的那些」换掉了。单列一种而不是复用 `user-delete`，是因为账上写着
+ * `user-delete` 就等于对用户说「你删过它」—— 那是当面撒谎；而它也不进回收站
+ * （理由写在 `core/domain/restore-as-revert.ts`：撤销路径本来就存在，再恢复到最新那一版即可）。
+ */
+export type DeleteReason = 'user-delete' | 'consumed' | 'undone' | 'reverted';
 
 // ---------------------------------------------------------------------------
 // 同步载荷
@@ -291,6 +303,48 @@ export interface SyncSnapshot {
   /** 只覆盖 `state`：内容与 `StateEnvelope.checksum` 同源，两边算出来的必须一样。 */
   stateChecksum: string;
   state: StoredState;
+  /**
+   * 构建这一版的本机设备名。
+   *
+   * 它是**顶层可选字段**，不进 `state`、不进 `stateChecksum` —— 内容寻址去重
+   * 只看 `state`，所以改名不会让同一份内容算出两个文件名。
+   * 为什么放在快照上而不是单独一个 `devices/` 目录：那份目录要双向同步，
+   * 而双向同步的注册表就是"每台设备都改同一份文档"，那是新增的一类冲突（既有约定 的口径）。
+   */
+  deviceName?: string;
+}
+
+/**
+ * 本机设备档案。
+ *
+ * 它现在是**设备身份的唯一来源**：`getDeviceId()` 只是 `profile.id` 的一层门面
+ * （墓碑署名、冲突面板、快照的 `deviceId` 全都从此流向）。旧安装里那个裸 UUID 键
+ * `shitab:device` 不再被读 —— 开发期没有需要保住的数据（本轮 Q8 的定案），
+ * 留一条"老 UUID 补建"的分支就是留一条永远不会被真机走到的代码。
+ */
+export interface DeviceProfile {
+  id: string;
+  /** 用户可改；默认 `Chrome · Windows` 形式。改名不标脏、不触发同步。 */
+  name: string;
+  /** 检测出的浏览器名。落盘一次就不再重测，所以它同时也是"这台身份是在哪个内核上建起来的"。 */
+  browser: string;
+  /** 检测出的平台名。空串 = 认不出来。 */
+  platform: string;
+  createdAt: number;
+}
+
+/**
+ * manifest 设备表里的一条。
+ *
+ * 只有 `id` / `name` / `updatedAt` 三个数：它是"谁叫什么、最后一次说话是什么时候"的最小集。
+ * 不放浏览器/平台/建档时刻 —— 那些是本机的排查面，同步出去没人读（而且会变，
+ * 一变就成为两台设备算不拢的字段）。
+ */
+export interface DevicePointer {
+  id: string;
+  name: string;
+  /** 这台设备最后一次写 manifest 的时刻；同一 id 撞车时靠它决定取哪个名字。 */
+  updatedAt: number;
 }
 
 /** manifest 里一条历史项。带着 checksum，重建时不用回读快照本体。 */
@@ -318,6 +372,34 @@ export interface SyncManifest {
   /** 参与过这个库的设备身份，只用于冲突 UI 上写"另一设备"。 */
   deviceIds: string[];
   history: ManifestEntry[];
+  /**
+   * 参与设备的 id/name 表，冲突 UI 用它把 `deviceId` 解析成人名。
+   *
+   * 与上面 `deviceIds` 并存而不是取代它：`deviceIds` 已经在载荷与验货里躺了一版，
+   * 删它就是一次跨版本改动（老载荷缺 `devices` 是可读，老载荷缺 `deviceIds` 是验不过），
+   * 而这张表只是多带一份"谁的哪个名字"。
+   * 合并口径见 `core/domain/device-profile.ts` 的 `mergeDeviceTables`：可交换、确定性。
+   * 合并口径见 `core/domain/device-profile.ts` 的 `mergeDeviceTables`：可交换、确定性。
+   */
+  devices?: DevicePointer[];
+}
+
+/**
+ * 指针文件：远端唯一**可变**的那份文档，等于 Git 的 ref。
+ *
+ * 只带"最新是哪一版"这两个数：它在每一轮的第一步就被读（后台 alarm 5 分钟一次、
+ * 页面开着时心跳 60 秒一次），所以它必须小。完整那一版仍在 `manifests/revision-<N>.json`
+ * 里，只有真要合并/推送时才去读它。
+ *
+ * ⚠ 它可以被覆盖，所以它是竞态唯一能碰坏的东西 —— 而它永远可由扫 `snapshots/`
+ * 重建（`verifyPointer` 之外的整条重建路径都还在）。
+ */
+export interface SyncPointer {
+  format: typeof POINTER_FORMAT;
+  version: 1;
+  revision: number;
+  snapshotId: string;
+  updatedAt: number;
 }
 
 /**
@@ -369,6 +451,51 @@ export type SyncTriggerReason =
   | 'manual';
 
 /**
+ * 本机同步事件日志的一条。
+ *
+ * 只有五类，且**每一类都有人写**：`skip` / `merge` 这两个候选值被砍掉了
+ * （空转出口不落盘、合并并进 push/pull 的 summary）。留一个没人写的 kind
+ * 就是留一个死字段 —— 后来者会以为"日志里有 skip 就说明引擎查过"，而它永远不会出现。
+ *
+ * 本地状态损坏（`blocked`）走 `error` + `summary: 'err:invalid-local:<reason>'`，
+ * 不单立第六个 kind：它对用户的含义就是"这一轮失败了"，区别只在 summary。
+ */
+export type SyncEventKind =
+  /** 成功推上去了一版新 revision。 */
+  | 'push'
+  /** 拉到并应用了远端的改动（这一轮最终没有推送）。 */
+  | 'pull'
+  /** 有 delete-vs-edit 撞车，停在等用户裁决那一格。 */
+  | 'conflict'
+  /** 触发异常变化闸，挂起等用户确认。 */
+  | 'suspicious'
+  /** 凭据 / 地址 / 网络 / 本地状态损坏一类的失败。 */
+  | 'error';
+
+/**
+ * 一条事件。
+ *
+ * `summary` 存的是**判别值 + 计数**，不是已翻译的句子（`R12` / `merged:3` / `conflicts:2` /
+ * `err:network`），语言由 UI 在渲染时现翻 —— 存译文的后果是换了语言之后旧日志永远停在旧语言，
+ * 而那些记录正是用户排查"到底同步过没有"要回看的东西。长度上限见 `SYNC_EVENT_SUMMARY_MAX`。
+ */
+export interface SyncEventRecord {
+  /** 事件自身的 id（与实体 id 同一个生成器）。 */
+  id: string;
+  /** 事件时刻（毫秒）。存储按它升序，UI 反转取最新在上。 */
+  at: number;
+  kind: SyncEventKind;
+  /** 谁叫醒了这一轮。只用于显示，不进任何判据（沿用 既有约定 的 `SyncTriggerReason`）。 */
+  trigger?: SyncTriggerReason;
+  /** 这个出口是"成了/中性"（true）还是"失败/等人处理"（false）。UI 的着色看它。 */
+  success: boolean;
+  summary?: string;
+}
+
+/** `appendSyncEvent` 的入参：id 与 at 由实现内部生成，调用方不该操心。 */
+export type SyncEventInput = Omit<SyncEventRecord, 'id' | 'at'>;
+
+/**
  * 待用户裁决的 delete-vs-edit 冲突。
  *
  * 只存判定要用的那几个数，**不存整条会话**：合并时那条会话已经落回本地存储了，
@@ -376,10 +503,26 @@ export type SyncTriggerReason =
  */
 export interface StoredConflict {
   groupId: string;
+  /**
+   * 那条会话**当时的标题**。
+   *
+   * 为什么必须存进账而不是让面板去 `getGroup(groupId)`：停在冲突那一轮引擎**不写本机**
+   * （不写、不推，等用户裁决），所以对面那台设备拉到这堆冲突时，本地根本没有这条会话，
+   * `getGroup` 返回 undefined ⇒ 卡片标题只能印成一串裸 UUID。
+   * 真机上他看到的就是 19 张写着十六进制的卡片，让他从里面猜"哪一条是哪个会话"。
+   */
+  groupTitle: string;
   deletedAt: number;
   editedAt: number;
   deletedByDeviceId: string;
   deleteReason: DeleteReason;
+  /**
+   * 引擎落这笔账时解析出的"删除方叫什么"。
+   *
+   * 解析得到就存，解析不到就**缺省** —— 不存空串、不存"另一台设备"：那两种都是
+   * 把"不知道"伪装成"知道"。UI 的回退是 `deletedByName ?? deletedByDeviceId.slice(0, 8)`。
+   */
+  deletedByName?: string;
 }
 
 /**
@@ -434,6 +577,23 @@ export interface SyncMeta {
    * 落盘的理由很实际：连着两条真机投诉都卡在"到底有没有人来问过判据"这一格上。
    */
   lastTrigger?: SyncTriggerReason;
+  /**
+   * 塌陷闸停下来时，**用户如果要点「照推」，他授权的是哪一版内容**。
+   *
+   * 必须落盘：引擎跑在 background，那颗按钮在设置页那个进程里，两边只能靠账本对话
+   * （与 `pendingConflicts` 同一个理由）。它是"事实"——上一次停在闸前的是哪一版，
+   * 不是授权本身。
+   */
+  suspiciousOutgoingChecksum?: string;
+  /**
+   * 用户对塌陷闸的**一次性**放行：值 = 他看过数字并确认的那一版 checksum。
+   *
+   * 为什么按 checksum 认、不是一个布尔开关：这道闸是整套设计立项的理由（`safety.ts` 开头
+   * 那三行），给它挂一个与内容无关的旁路等于把闸拆了 —— 用户点完确认、下一轮跑起来之前
+   * 本地又动了一次，布尔开关会放行一版他从没看过数字的内容。引擎**读完即清**，
+   * 所以它也不可能躺成常驻开关。
+   */
+  suspiciousAckChecksum?: string;
   /**
    * 有一轮同步正在飞的**跨进程认领**（时刻，既有约定）。
    *
@@ -579,7 +739,14 @@ export interface CaptureResult {
   failed: number;
   /** 因为被固定住而**没有纳入收纳**的 tab 数（不进 saved 任何轴） */
   pinnedSkipped: number;
-  /** 其中 restorable=false 的条数，UI 要提示"这些没法直接恢复" */
+  /**
+   * 其中 restorable=false 的条数，UI 要提示"这些没法直接恢复"。
+   *
+   * ⚠ 既有约定 之后**恒为 0**：这类页面已经不再进会话（`isCapturableTab`），
+   * 一条结果里不会再有"存下来但开不回来"的记录。字段与那句提示都留着 ——
+   * 留着的理由不是兼容（这个对象从来不会被老数据填进 UI），是这一格现在是那条过滤器的**探针**：
+   * 哪天有人绕开它把内部页塞回会话，结果条会当场说出来而不是悄悄少几条。
+   */
   nonRestorableSaved: number;
   /** 撤销所需的快照，按原顺序 */
   savedTabs: SavedTab[];
@@ -597,7 +764,9 @@ export interface CaptureResult {
 export interface CaptureFailure {
   ok: false;
   /**
-   * - `no-stashable-tabs`：窗口里除了入口页/固定页没别的（不建空组）
+   * - `no-stashable-tabs`：窗口里除了入口页/固定页/不可恢复的页面（`chrome://`、扩展页、
+   *   新标签页）没别的（不建空组）。最后那一类是 既有约定 新加的来客，走的是同一条出口 ——
+   *   它不是"收纳失败"，badge 报 0、不安排落脚页、不发通知，UI 上只有 `capture_no_tabs` 那一句。
    * - `in-progress`：上一次收纳还在跑，本次点击被忽略（V1.1 §22 / AC-12）
    */
   reason: 'no-stashable-tabs' | 'in-progress';

@@ -5,6 +5,8 @@ import {
   RAIL_WIDTH_MAX,
   RAIL_WIDTH_MIN,
   STORAGE_KEYS,
+  SYNC_EVENT_LIMIT,
+  SYNC_EVENT_SUMMARY_MAX,
 } from '@/shared/constants';
 import { clampRailWidth, mergeUiPrefs, railWidthCeiling } from '@/core/domain/ui-prefs';
 import type { SavedTab, TabGroup, TrashEntry } from '@/shared/types';
@@ -461,5 +463,145 @@ describe('回收站的整块读写与订阅', () => {
 
     expect(seen.length).toBeGreaterThan(0);
     expect(seen[seen.length - 1]).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 同步事件日志的存储面：环形 100、空转不落盘由引擎负责，这里只管环与"永不拖累主流程"
+// ---------------------------------------------------------------------------
+
+describe('同步事件环形缓冲', () => {
+  // 这一节是**顶层** describe，吃不到上面 `describe('StoragePort')` 里那条 beforeEach。
+  // 少了它，上一节的残留会让"环 100"那两条断言打在别人的数据上（第一次跑就是这么红的）。
+  beforeEach(async () => {
+    await fakeBrowser.storage.local.clear();
+  });
+
+  const push = (
+    port: ReturnType<typeof createStoragePort>,
+    at: number,
+    summary?: string,
+  ) => port.appendSyncEvent({ kind: 'push', success: true, summary }, at);
+
+  it('空的时候是空数组，不是 undefined（UI 直接 .reverse() 不能炸）', async () => {
+    const port = createStoragePort();
+    expect(await port.listSyncEvents()).toEqual([]);
+  });
+
+  it('id 与 at 由端口生成；传 at 就用那一次同步的时刻；按 at 升序存', async () => {
+    const port = createStoragePort();
+    const first = await push(port, 2_000);
+    const second = await push(port, 1_000);
+
+    expect(first.id).toBeTruthy();
+    expect(first.at).toBe(2_000);
+    // 正向对照：两次都真的落盘了，否则"升序"这条判据可以打在空集上
+    const stored = await port.listSyncEvents();
+    expect(stored.map((event) => event.at)).toEqual([1_000, 2_000]);
+    expect(stored.map((event) => event.id)).toEqual([second.id, first.id]);
+  });
+
+  /**
+   * 传进来的 `at` 与上面那条不同：这里钉的是"**存储里永远是升序**"这条合同本身。
+   * UI 反转取最新在上、以及裁剪"只裁最旧"这两件事都只在这个前提成立时才安全，
+   * 而它不该依赖调用方（引擎）守规矩。
+   */
+  it('写入顺序打乱也不影响存储秩序', async () => {
+    const port = createStoragePort();
+    await port.appendSyncEvent({ kind: 'error', success: false, summary: 'err:network' }, 300);
+    await port.appendSyncEvent({ kind: 'pull', success: true, summary: 'merged:1' }, 100);
+    await port.appendSyncEvent({ kind: 'push', success: true, summary: 'R2' }, 200);
+    expect((await port.listSyncEvents()).map((event) => event.at)).toEqual([100, 200, 300]);
+  });
+
+  /** 等值 `at`（同一毫秒里两条）不许被排序打乱 —— 环形裁剪认的就是这个先后。 */
+  it('同一个 `at` 的多条保留写入先后', async () => {
+    const port = createStoragePort();
+    await push(port, 500, 'R1');
+    await push(port, 500, 'R2');
+    expect((await port.listSyncEvents()).map((event) => event.summary)).toEqual(['R1', 'R2']);
+  });
+
+  it('满环之后只留最近 100 条：最旧的那条被挤出去，最新的一条一定在', async () => {
+    const port = createStoragePort();
+    for (let index = 1; index <= SYNC_EVENT_LIMIT + 5; index += 1) {
+      await push(port, 1_000 + index, `R${index}`);
+    }
+    const stored = await port.listSyncEvents();
+
+    expect(stored).toHaveLength(SYNC_EVENT_LIMIT);
+    // 正向对照：最新那条在（否则"裁剪"可能裁反了方向，那才是真正的事故）
+    expect(stored[stored.length - 1]?.summary).toBe(`R${SYNC_EVENT_LIMIT + 5}`);
+    expect(stored[stored.length - 1]?.at).toBe(1_000 + SYNC_EVENT_LIMIT + 5);
+    // 反方向：最旧的那 5 条已经不在了
+    expect(stored[0]?.summary).toBe(`R6`);
+    expect(stored.some((event) => event.summary === 'R1')).toBe(false);
+    expect(stored.map((event) => event.at)).toEqual([...stored.map((event) => event.at)].sort((a, b) => a - b));
+  });
+
+  it('summary 截到 80 字符以内，且用 Array.from 不切断多字节', async () => {
+    const port = createStoragePort();
+    const long = await port.appendSyncEvent({
+      kind: 'error',
+      success: false,
+      summary: `err:invalid-local:${'坏'.repeat(120)}`,
+    }, 1_000);
+    // 正向对照：短的一个字都没被动过
+    const short = await port.appendSyncEvent({ kind: 'push', success: true, summary: 'R12 · merged:3' }, 1_001);
+
+    expect(Array.from(long.summary ?? '')).toHaveLength(SYNC_EVENT_SUMMARY_MAX);
+    expect((long.summary ?? '').endsWith('坏')).toBe(true);
+    expect(short.summary).toBe('R12 · merged:3');
+  });
+
+  it('trigger 与 summary 都是可选的：没传就不该在记录里留下一个 undefined 键', async () => {
+    const port = createStoragePort();
+    const bare = await port.appendSyncEvent({ kind: 'pull', success: true }, 1_000);
+    const full = await port.appendSyncEvent({ kind: 'push', success: true, trigger: 'manual', summary: 'R3' }, 1_001);
+
+    expect(Object.keys(bare).sort()).toEqual(['at', 'id', 'kind', 'success']);
+    // 正向对照：给了就必须真的带上，否则"这一轮是谁叫醒的"那一列永远是空的
+    expect(full.trigger).toBe('manual');
+    expect(full.summary).toBe('R3');
+  });
+
+  /**
+   * 这一条是这条线的存在理由：**日志写失败永不影响同步主流程**。
+   * 存储坏掉的时候 `appendSyncEvent` 返回一条内存记录、不抛 —— 否则一次配额溢出
+   * 就会把一次本来能成的同步弄成失败，而日志的价值恰恰是在出问题时还在。
+   */
+  it('存储写不进去：不抛、照样返回一条记录（且调用方拿到的就是它）', async () => {
+    const port = createStoragePort();
+    const set = fakeBrowser.storage.local.set;
+    (fakeBrowser.storage.local.set as unknown) = async () => {
+      throw new Error('quota bytes per bullet exceeded');
+    };
+    try {
+      const record = await port.appendSyncEvent({ kind: 'error', success: false, summary: 'err:network' }, 1_000);
+      expect(record.kind).toBe('error');
+      expect(record.summary).toBe('err:network');
+      expect(record.id).toBeTruthy();
+    } finally {
+      (fakeBrowser.storage.local.set as unknown) = set;
+    }
+
+    // 正向对照：修好之后写读都恢复正常 ⇒ 上面那条不是"整个端口都废了"
+    await push(port, 2_000, 'R9');
+    expect((await port.listSyncEvents()).map((event) => event.summary)).toContain('R9');
+  });
+
+  /**
+   * 不进备份这条口径。`snapshotAll()` 是用户下载的那份载荷的**唯一**来源，
+   * 它的形状由这四个键钉死；把日志写进去 = 把"这台机器同步过什么"伪造到还原的那台机器上。
+   */
+  it('事件不进备份载荷', async () => {
+    const port = createStoragePort();
+    await push(port, 1_000, 'R1');
+    const backup = await port.snapshotAll();
+
+    expect(Object.keys(backup).sort()).toEqual(['categories', 'groups', 'meta', 'settings']);
+    expect(JSON.stringify(backup)).not.toContain('R1');
+    // 正向对照：同一条记录确实在存储里，只是不在备份载荷里
+    expect((await port.listSyncEvents()).map((event) => event.summary)).toContain('R1');
   });
 });

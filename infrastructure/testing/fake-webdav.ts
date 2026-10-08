@@ -14,6 +14,12 @@
  *
  * `calls` 记的是**真服务器会看到的动词**（`testConnection` 记成 PROPFIND、`move` 记成 MOVE），
  * 不是 port 方法名 —— 否则"断言 testConnection 没发出任何写"这类检查会随实现措辞漂移。
+ *
+ * ⚠ 但**别拿它的条数当生产请求数**：这里的 `ensureCollection` 是无条件逐级 MKCOL，
+ * 而生产实现（`http-webdav.ts`）有一道稳态快路径 —— 目录早就在就一个 PROPFIND 问完就走
+ * （没这道时真坚果云实测光"确保目录在"就吃掉一轮同步 8 秒）。
+ * 同一轮"本地加一条会话再推送"：假件记 **16 笔**（含 8 个 MKCOL），真服务器上是 **10 笔**
+ * （3 GET + 2 PROPFIND + 3 PUT + 2 DELETE）。数 DELETE 的用例不受这条影响 —— 那两侧逐笔一致。
  */
 
 import {
@@ -55,6 +61,20 @@ export interface FakeWebDavOptions {
   faults?: FakeWebDavFault[];
   /** 虚拟时钟起点（epoch 毫秒）。默认固定值：测试要能断言"后写的更新"，而不是跟着跑表抖。 */
   clockStart?: number;
+}
+
+/**
+ * `fake.immutable` 那条纪律**只该盖住真正不可变的路径**。
+ *
+ * 指针文件 `manifests/latest.json` 是这套布局里唯一设计成可以覆盖的一份，
+ * 真服务器对它就是放行 —— 所以假件也得放行，否则第二次同步之后每一轮都 412，
+ * 而这看起来会完全像"服务器把目录设成了只读"，把调查引到错的方向上。
+ *
+ * 主机真的配了只读，走的是 `readOnlyPrefixes`（403），那是另一件事、另一种状态码。
+ */
+const MUTABLE_PATH = /\/latest\.json$/i;
+function isMutablePath(url: string): boolean {
+  return MUTABLE_PATH.test(url);
 }
 
 export interface FakeWebDavPort extends WebDavPort, WebDavAdminPort {
@@ -347,8 +367,18 @@ export function createFakeWebDav(options?: Partial<FakeWebDavOptions>): FakeWebD
       const currentEtag = attrs.get(url)?.etag;
 
       if (options?.ifNoneMatch !== undefined) {
-        // If-None-Match = "当前版本存在且对得上就别写"。`*` 时只要文件在就 412。
-        if (current !== undefined && etagMatches(currentEtag, options.ifNoneMatch)) {
+        /**
+         * If-None-Match = "存在就别写"。`*` 时只要文件在就 412 —— **不管有没有 etag**。
+         *
+         * 原来这一支要求 `etagMatches(currentEtag, '*')`，而 `etagMatches(undefined,'*')`
+         * 是 false，于是"没记 etag 的已存在文件"被**放行覆盖**了。假件里手动摆进去的
+         * `remote.files.set(url, ...)` 就是那种没有 etag 的文件 —— 所以"两个设备抢同一个
+         * revision 号"这一档以前根本测不出来：引擎带 `If-None-Match: *`，假件照样让它写。
+         * 真服务器上那一次是 412。这一格改的是假件，不是引擎。
+         */
+        if (options.ifNoneMatch === '*') {
+          if (current !== undefined) fail('PUT', url, 412, 'If-None-Match: * 命中：远端已经有这个资源');
+        } else if (current !== undefined && etagMatches(currentEtag, options.ifNoneMatch)) {
           fail('PUT', url, 412, 'If-None-Match 命中：远端已经有内容');
         }
       }
@@ -366,7 +396,7 @@ export function createFakeWebDav(options?: Partial<FakeWebDavOptions>): FakeWebD
         // 否则"内容没变就不该新建快照"那条判定在假件上永远不成立。
         return currentEtag === undefined ? {} : { etag: currentEtag };
       }
-      if (current !== undefined && fake.immutable) {
+      if (current !== undefined && fake.immutable && !isMutablePath(url)) {
         fail('PUT', url, 412, '不可变路径上的内容不同（远端历史快照不许覆盖）');
       }
 

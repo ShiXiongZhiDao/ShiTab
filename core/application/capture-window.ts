@@ -17,10 +17,17 @@
  *    第二遍按真实关闭结果改写（AC-11：部分关闭失败时快照仍完整）。
  *
  * ## 范围
+ * - **一次调用只处理一个窗口**（既有约定 决定 6 的补充格）：`input.scope` 在这条约束内
+ *   进一步缩小集合，而「收纳所有窗口」由调用方**逐窗口各调一次**，不在这里并成一个会话 ——
+ *   `sourceWindowId`、落地页、撤销条都是按窗口成立的。
  * - 入口页自己**永不收纳、永不关闭**（AC-06，见 domain/tab.isEntryTabUrl）。
  * - 用户钉住的 tab 默认不收，`includePinnedTabs` 打开后一起收（V1.1 §5）。
- * - 浏览器内部页**照样收**（既有约定 判 V1.1 §4.2 的"排除"不采纳）：标 restorable=false，
- *   恢复时计 skipped，关不掉的计 failed。
+ * - **不能直接恢复的页面（`chrome://` / `edge://` / 扩展页 / 新标签页）既不收纳也不关闭**
+ *   —— 它留在浏览器里原封不动，会话里没有这条记录（既有约定，反转 既有约定 第 1 条）。
+ *   判据在 `domain/tab.isCapturableTab` 这一处，不在这里再写一遍；关闭的集合是从
+ *   `capturable` 出来的，所以"不收"与"不关"是同一个决定的两面，分开写就会只对一半。
+ * - 因此**一个窗口可能一条都收不到**（整窗只有新标签页时）：走既有的
+ *   `no-stashable-tabs` 出口，不建空会话、不安排落脚页、不发收纳通知。
  */
 
 import type { BrowserTabsPort } from '@/core/ports/browser-tabs';
@@ -36,6 +43,7 @@ import type {
 } from '@/shared/types';
 import { createGroup } from '@/core/domain/group';
 import { isCapturableTab, isRestorableUrl, isEntryTabUrl, toSavedTab } from '@/core/domain/tab';
+import { selectScopeTabs, type CaptureScope } from '@/core/application/capture-scopes';
 import type { BrowserTab } from '@/shared/types';
 import { newId, now } from '@/shared/utils';
 
@@ -90,7 +98,18 @@ export type StashLock = ReturnType<typeof createStashLock>;
 
 export async function captureWindow(
   deps: CaptureDeps,
-  input: { windowId: number; title?: string; at?: number },
+  input: {
+    windowId: number;
+    title?: string;
+    at?: number;
+    /**
+     * 收纳范围（既有约定 决定 6）。**不给 = 整窗**，也就是图标左键走了多年的那条路径。
+     *
+     * 给了就在 `isCapturableTab` **之前**先把集合缩小：范围只改"送进过滤器的集合"，
+     * 不改过滤器本身（入口页永不收、固定标签看设置、不可恢复的页面不收也不关 —— 既有约定）。
+     */
+    scope?: { kind: CaptureScope; anchorTabId: number };
+  },
 ): Promise<{ ok: true; result: CaptureResult } | CaptureFailure> {
   const at = input.at ?? now();
   const operationId = newId();
@@ -98,10 +117,20 @@ export async function captureWindow(
   const settings = await deps.storage.getSettings();
   const policy = { includePinnedTabs: settings.includePinnedTabs };
   const windowTabs = await deps.tabs.queryWindowTabs(input.windowId);
-  const capturable = windowTabs.filter((tab) => isCapturableTab(tab, policy));
-  const pinnedSkipped = countPinnedSkipped(windowTabs, policy.includePinnedTabs);
+  // 范围解析用的是**这一次查询**拿到的列表，不是调用方事先算好的 tab id 数组：
+  // 中间隔一次 await 的话，"右键的瞬间"与"开始收纳的瞬间"可能已经不是同一批标签了。
+  const inScope = input.scope
+    ? selectScopeTabs(windowTabs, input.scope.anchorTabId, input.scope.kind)
+    : windowTabs;
+  const capturable = inScope.filter((tab) => isCapturableTab(tab, policy));
+  const pinnedSkipped = countPinnedSkipped(inScope, policy.includePinnedTabs);
 
   if (capturable.length === 0) {
+    // 既有约定 之后这一格多了一个新来客：**整窗只有新标签页 / 内部页**。
+    // 走的是既有那条出口，不是新造的分支 —— 于是自动得到全部四条保护：
+    // 不建会话、不安排落脚页（下面那行 return 在 `ensureLanding` 之前）、不发收纳通知、
+    // badge 报 0 + `capture_no_tabs` 那句"这个窗口里没有可收纳的网页"（那句本来就写着"网页"，
+    // 正好是这件事的真话，所以本轮一个 i18n 键都不必动）。
     return { ok: false, reason: 'no-stashable-tabs', pinnedSkipped };
   }
 
@@ -133,8 +162,14 @@ export async function captureWindow(
   // ---- 第一遍持久化：先落盘，关闭结果未知 ---------------------------------
   await deps.storage.putGroup({ ...group, tabs: entries.map((entry) => entry.saved) });
 
-  // ---- 落脚页：关掉任何东西之前先确保窗口里还剩一个能看的东西 --------------
-  const hasLanding = await ensureLanding(deps, input.windowId);
+  // ---- 落脚页：只在"活动页本身在这次集合里"时才安排 ------------------------
+  //
+  // 整窗收纳必须落脚：关掉窗口里最后一条 tab 会**连窗口一起关**（见文件头第 2 条）。
+  // 但「左侧 / 右侧 / 除当前外」通常**不含活动页**，这时安排落脚页等于凭空多开一个入口页、
+  // 还带着 `focus: true` 把用户从他正在看的那页拽走 —— 那是一次没人要求的跳转。
+  // 判据取"集合里有没有 active"而不是"是哪一种范围"：将来加范围这条自动成立。
+  const closesActive = capturable.some((tab) => tab.active);
+  const hasLanding = closesActive ? await ensureLanding(deps, input.windowId) : true;
 
   // ---- 关闭 ---------------------------------------------------------------
   const willClose = selectableToClose(capturable, {

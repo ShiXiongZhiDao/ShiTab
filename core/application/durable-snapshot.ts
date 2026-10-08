@@ -12,6 +12,7 @@
 import type { StoragePort } from '@/core/ports/storage';
 import type { SlotName, StateEnvelope, StoredState } from '@/shared/types';
 import { gzipToBase64 } from '@/core/domain/gzip';
+import { canonicalizeState } from '@/core/domain/state-order';
 import {
   emptyState,
   inactiveSlot,
@@ -103,7 +104,16 @@ export async function readValidEnvelope(deps: DurableSnapshotDeps): Promise<Stat
   return (await recoverDurableState(deps)).envelope;
 }
 
-/** 从分键主存储读全量状态。顺序无关：checksum 走的是规范化 JSON（键序已排序、数组按存储顺序）。 */
+/**
+ * 从分键主存储读全量状态，**排成规范形**。
+ *
+ * ⚠ 这一句是必须的，不是整理：`canonicalJson` 只排键序，数组照字面顺序进摘要，
+ * 而 `listAllGroups` 返回的是索引数组的来路顺序。原来这里的注释写着"顺序无关"，
+ * 那句话是错的 —— 它正是两台设备 9 分钟互推 10 个版本的根因：
+ * `mergeStates` 出来的那一版与下一轮从存储读回来的那一版顺序不同 ⇒ 摘要不等 ⇒
+ * 每台每轮都认定"我与远端不一样"，于是各推一版、谁都不认谁。
+ * 判据只许有一份，所以这里与 `mergeStates` 调的是同一个 `canonicalizeState`。
+ */
 export async function readStoredState(deps: DurableSnapshotDeps): Promise<StoredState> {
   const [groups, categories, tombstones, trash] = await Promise.all([
     deps.storage.listAllGroups(),
@@ -113,7 +123,8 @@ export async function readStoredState(deps: DurableSnapshotDeps): Promise<Stored
   ]);
   // `trash` 永远写出来（哪怕是空数组）：可选键"缺席"与"是空数组"在 canonicalJson 下
   // 是两个 checksum，只有"current build 一律带上这个键"才压得住每轮同步各造一个快照。
-  return { groups, categories, tombstones, trash };
+  // （顺序那一半由 `canonicalizeState` 管，键在不在这一半由这里管，两件事别混。）
+  return canonicalizeState({ groups, categories, tombstones, trash });
 }
 
 /** 供测试与降级路径使用：一份"什么都没有"的状态，明确区别于"读不到快照"。 */

@@ -2,7 +2,7 @@
   "name": "shitab",
   "description": "ShiTab — stash the tabs of the current window into a named group, close them, and get them back later. Local-first, no account, no host permissions.",
   "private": true,
-  "version": "1.9.1",
+  "version": "1.11.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",

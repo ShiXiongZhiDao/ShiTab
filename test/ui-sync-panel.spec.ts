@@ -19,8 +19,11 @@ import { createStoragePort } from '@/infrastructure/storage/wxt-storage';
 import { createFakeWebDav, FAKE_CREDENTIAL } from '@/infrastructure/testing/fake-webdav';
 import type { FakeWebDavFault, FakeWebDavPort } from '@/infrastructure/testing/fake-webdav';
 import type { StoragePort } from '@/core/ports/storage';
+import { markDirty } from '@/core/application/sync-engine';
+import { defaultDeviceName } from '@/core/domain/device-profile';
 import { softDeleteGroup } from '@/core/application/delete-model';
-import { groupFixture, savedTabFixture } from './fixtures';
+import { groupFixture, remoteSnapshot, savedTabFixture } from './fixtures';
+import { POINTER_FILE } from '@/core/domain/remote-layout';
 
 const BASE = 'https://dav.example.com/dav';
 const LAND = `${BASE}/ShiXiongZhiDao/ShiTab/`;
@@ -155,14 +158,23 @@ describe('未连接：三字段一颗按钮', () => {
     expect(wrapper.find('[data-testid="sync-test"]').exists()).toBe(false);
   });
 
-  it('控件数：1 颗按钮 + 3 个输入 + 0 颗常驻勾选', async () => {
+  /**
+   * 控件数这条判据的本意是"这屏不许长成一张表单"，不是"永远是 3+1"。
+   * 既有约定 加了底部那条折叠日志（1 颗 `button[aria-expanded]`），既有约定 加了顶部
+   * 一行本机设备名（1 个 text 输入）—— 两样都不是勾选框，也不是新的动作按钮，
+   * 所以这条判据跟着走，而 `checkbox` 那一格必须是 0。
+   */
+  it('控件数：1 颗动作按钮 + 1 颗折叠日志 + 3 个连接字段 + 1 个设备名 + 0 颗常驻勾选', async () => {
     await seedBlank();
     const wrapper = mountPanel();
     await flush();
 
-    expect(wrapper.findAll('button')).toHaveLength(1);
-    expect(wrapper.findAll('input')).toHaveLength(3);
+    expect(wrapper.findAll('button')).toHaveLength(2);
+    expect(wrapper.findAll('input')).toHaveLength(4);
     expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0);
+    // 正向对照：那 4 格里只有顶部那一格是设备名，其余三格才是连接表单
+    expect(wrapper.find('[data-testid="device-name-input"]').exists()).toBe(true);
+    expect(wrapper.findAll('[data-testid="sync-username"], [data-testid="device-name-input"]')).toHaveLength(2);
   });
 
   it('那句权限承诺是用户看得见的字，钉住它（改了措辞就要当轮改这条）', async () => {
@@ -183,9 +195,12 @@ describe('未连接：三字段一颗按钮', () => {
     expect(hint.exists(), '这条说明不见了 ⇒ 用户只能撞 401 才知道坚果云要的是应用密码').toBe(true);
     expect(hint.text()).toContain('app password');
     expect(hint.text()).toContain('account email');
-    // 它是一行说明，不是第四颗输入框、也不是第二颗按钮（上面那条控件数用例钉的是同一件事）
-    expect(wrapper.findAll('input')).toHaveLength(3);
-    expect(wrapper.findAll('button')).toHaveLength(1);
+    // 它是一行说明，不是**又一个**连接字段，也没有多出第二颗**动作**按钮
+    // （上面那条控件数用例钉的是同一件事；这里那 2 颗里另一颗是底部的折叠日志，它不发请求）。
+    // 4 = 三个连接字段 + 顶部那一格设备名，这一条要的是"说明没变成第五格"。
+    expect(wrapper.findAll('input')).toHaveLength(4);
+    expect(wrapper.findAll('button')).toHaveLength(2);
+    expect(wrapper.findAll('[data-testid="sync-connect"], [data-testid="sync-test"], [data-testid="sync-now"]').length).toBe(1);
   });
 
   /** 这是"点一次 = 五件事"的那一条：配置落盘**并且**远端真的收到一份快照 + 一份 manifest。 */
@@ -198,7 +213,8 @@ describe('未连接：三字段一颗按钮', () => {
     await flush();
 
     await wrapper.find('input[type="url"]').setValue(BASE);
-    await wrapper.find('input[type="text"]').setValue(FAKE_CREDENTIAL.username);
+    // 用户名那格按 testid 找：顶部那行设备名也是 `type=text`，按类型找会填到它身上。
+    await wrapper.find('[data-testid="sync-username"]').setValue(FAKE_CREDENTIAL.username);
     await wrapper.find('input[type="password"]').setValue(FAKE_CREDENTIAL.password);
     await wrapper.find('[data-testid="sync-connect"]').trigger('click');
     await until(() => remote.files.size > 0, '远端收到第一份快照');
@@ -208,10 +224,20 @@ describe('未连接：三字段一颗按钮', () => {
     expect(saved.baseUrl).toBe(BASE);
     expect(saved.lastTestedAt).toBeTypeOf('number');
     expect(request).toHaveBeenCalledTimes(1);
-    // 正向对照：少了这两行，"点了连接但根本没同步"也能全绿（配置那半确实是好的）
+    // 正向对照：少了这几行，"点了连接但根本没同步"也能全绿（配置那半确实是好的）
     expect([...remote.files.keys()].filter((url) => url.includes('/snapshots/'))).toHaveLength(1);
-    expect([...remote.files.keys()].filter((url) => url.includes('/manifests/'))).toHaveLength(1);
-    // 20s 而不是默认 5s：整条链（要权限 → 落盘 → 读远端 → gzip → PUT×2）在 28 个文件并行时
+    /**
+     * ★ 既有约定 之后远端一次推送落**三份**文件：快照、revision manifest、指针。
+     * 原来这一行是 `includes('/manifests/')` 数 1 个，指针一出现就变成 2 ——
+     * 而我没打算把它改成 2：那会把"两份 manifest 都该在"这件事糊成一个数字。
+     * 拆开钉，每一笔少写了都会各自红，而不是靠总数互相遮掩。
+     */
+    expect([...remote.files.keys()].filter((url) => url.includes('/manifests/revision-'))).toHaveLength(1);
+    expect(
+      [...remote.files.keys()].filter((url) => url.includes(`/manifests/${POINTER_FILE}`)),
+      '指针没落上远端 ⇒ 别的设备看不见这一版',
+    ).toHaveLength(1);
+    // 20s 而不是默认 5s：整条链（要权限 → 落盘 → 读远端 → gzip → PUT×3）在 28 个文件并行时
     // 就是要好几秒。第一次全量跑我就是被这个超时报成"产品坏了"，其实是测试自己饿死。
   }, 20_000);
 
@@ -329,7 +355,7 @@ describe('未连接：三字段一颗按钮', () => {
 });
 
 describe('已连接：一行摘要，不是一张表单', () => {
-  it('默认收起：1 颗主按钮 + 1 颗同步开关 + 1 个展开入口，输入框为 0', async () => {
+  it('默认收起：1 颗主按钮 + 1 颗同步开关 + 1 个展开入口，连接字段一个都没有', async () => {
     await seedConfig();
     const wrapper = mountPanel();
     await flush();
@@ -337,7 +363,11 @@ describe('已连接：一行摘要，不是一张表单', () => {
     expect(wrapper.find('[data-testid="sync-now"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="sync-switch"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="sync-expand"]').exists()).toBe(true);
-    expect(wrapper.findAll('input')).toHaveLength(0);
+    // 收起态整屏只剩顶部那一格设备名（既有约定 要求它**不跟着 configured 消失**），
+    // 连接表单那三格必须一个都不在 —— 这条判据要的是"摘要行没变回一张表单"。
+    expect(wrapper.findAll('input')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="device-name-input"]').exists()).toBe(true);
+    expect(wrapper.findAll('input[type="url"], input[type="password"]')).toHaveLength(0);
     // 「连接并同步」不该在已连接时还杵在那
     expect(wrapper.find('[data-testid="sync-connect"]').exists()).toBe(false);
     // 摘要行要看得见主机名、状态与落点，否则"连着哪台"变成要点开才知道
@@ -354,7 +384,11 @@ describe('已连接：一行摘要，不是一张表单', () => {
     expect(wrapper.find('[data-testid="sync-test"]').exists()).toBe(false);
     await wrapper.find('[data-testid="sync-expand"]').trigger('click');
 
-    expect(wrapper.findAll('input[type="url"], input[type="text"], input[type="password"]')).toHaveLength(3);
+    // 按 testid 数连接表单那三格，不按 `input[type=text]` 数：顶部设备名也是 text，
+    // 按类型数会把"三字段"糊成一个谁也说不出是什么的 4。
+    expect(
+      wrapper.findAll('[data-testid="sync-username"], input[type="url"], input[type="password"]'),
+    ).toHaveLength(3);
     expect(wrapper.find('[data-testid="sync-test"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="sync-test"]').text()).toBe('Test connection only');
     expect(wrapper.find('[data-testid="sync-connect"]').text()).toBe('Apply & reconnect');
@@ -498,6 +532,89 @@ describe('已连接：一行摘要，不是一张表单', () => {
     expect(wrapper.text()).toContain('Unusual change detected');
     for (const literal of ['suspicious_change', 'idle']) expect(wrapper.text()).not.toContain(literal);
   });
+
+  /**
+   * ★ 塌陷闸的出口。
+   *
+   * 此前 `suspicious_change` 是一句提示加一个死结：`safety.ts` 的判别联合注释承诺了
+   * "等用户在 UI 上选恢复云端 / 保留本地 / 查看差异"，而三个动作全仓一个都没有，
+   * 闸每轮都成立、那一版永远推不出去。
+   */
+  it('「照这一版上传」只在 suspicious_change 时出现，且把后果写在脸前', async () => {
+    await seedConfig();
+    const meta = await storage.getSyncMeta();
+
+    // 否定对照：没停在闸前就不该有这颗按钮（否则它就是一颗常驻的"绕过安全闸"）
+    await storage.setSyncMeta({ ...meta, status: 'idle' });
+    const idle = mountPanel();
+    await flush();
+    expect(idle.find('[data-testid="sync-push-anyway"]').exists()).toBe(false);
+
+    await storage.setSyncMeta({ ...meta, status: 'suspicious_change' });
+    const stopped = mountPanel();
+    await flush();
+    expect(stopped.find('[data-testid="sync-push-anyway"]').exists()).toBe(true);
+    // 断真文案不断 key（本文件纪律 1）
+    expect(stopped.find('[data-testid="sync-push-anyway"]').text()).toBe("I've checked — upload this version");
+    expect(stopped.find('[data-testid="sync-push-anyway-hint"]').text()).toContain('Remote history');
+  });
+
+  it('点「照这一版上传」⇒ 用户核对过的那一版真的推上去了', async () => {
+    await seedConfig();
+    for (let index = 0; index < 25; index += 1) {
+      const id = `s${index}`;
+      await storage.putGroup(groupFixture(`会话 ${id}`, [savedTabFixture(id, `${id}-t0`, 0)], { id, sortOrder: index }));
+    }
+    const remote = fake();
+    const wrapper = mountPanel(remote);
+    await flush();
+
+    await wrapper.find('[data-testid="sync-now"]').trigger('click');
+    await until(
+      () => [...remote.files.keys()].some((url) => url.includes('/snapshots/')),
+      '第一份快照落上远端',
+      12_000,
+      () => `calls=${JSON.stringify(remote.calls.map((call) => call.method))} notice="${noticeText(wrapper)}"`,
+    );
+    await quiet(wrapper);
+    const afterFirstPush = [...remote.files.keys()].filter((url) => url.includes('/snapshots/')).length;
+
+    for (let index = 0; index < 25; index += 1) {
+      await softDeleteGroup({ storage }, { groupId: `s${index}`, reason: 'user-delete', at: Date.now() });
+    }
+    // 真环境里"本机变了"由 background 的存储监听标脏；界面用例没有 background，
+    // 所以把脏标记补上（时刻退到 10 秒前，让 3 秒去抖已经过完），否则这一轮会被判成 not-due。
+    const dirty = await storage.getSyncMeta();
+    await storage.setSyncMeta({ ...dirty, dirtySinceAt: Date.now() - 10_000 });
+
+    await wrapper.find('[data-testid="sync-now"]').trigger('click');
+    await until(
+      () => wrapper.find('[data-testid="sync-push-anyway"]').exists(),
+      '闸停下来、出口按钮出现',
+      12_000,
+      () => `notice="${noticeText(wrapper)}" calls=${JSON.stringify(remote.calls.map((call) => call.method))}`,
+    );
+    await quiet(wrapper);
+    expect(
+      [...remote.files.keys()].filter((url) => url.includes('/snapshots/')).length,
+      '停在闸前时远端一个字节都不许多',
+    ).toBe(afterFirstPush);
+
+    await wrapper.find('[data-testid="sync-push-anyway"]').trigger('click');
+    await until(
+      () => [...remote.files.keys()].filter((url) => url.includes('/snapshots/')).length > afterFirstPush,
+      '确认过的那一版推上远端',
+      12_000,
+      () => `notice="${noticeText(wrapper)}" calls=${JSON.stringify(remote.calls.map((call) => call.method))}`,
+    );
+    await quiet(wrapper);
+
+    const files = [...remote.files.keys()].filter((url) => url.includes('/snapshots/'));
+    const newest = await remoteSnapshot(remote.files, files[files.length - 1] as string);
+    expect(newest.state.groups, '用户确认的正是"云端也变成 0 组"这件事').toHaveLength(0);
+    // 出口不常驻：推完状态离开 suspicious_change，按钮随之消失
+    expect(wrapper.find('[data-testid="sync-push-anyway"]').exists()).toBe(false);
+  }, 30_000);
 });
 
 /**
@@ -771,7 +888,7 @@ describe('被判据拒掉的那一轮：说什么、不说什么（既有约定 
       status: 'conflict',
       lastSyncAt: Date.now() - 120_000,
       pendingConflicts: [
-        { groupId: 'g1', deletedAt: 1, editedAt: 2, deletedByDeviceId: 'dev-2', deleteReason: 'user-delete' },
+        { groupId: 'g1', groupTitle: '会话 g1', deletedAt: 1, editedAt: 2, deletedByDeviceId: 'dev-2', deleteReason: 'user-delete' },
       ],
     });
     const remote = fake();
@@ -873,4 +990,304 @@ describe('被判据拒掉的那一轮：说什么、不说什么（既有约定 
     expect(wrapper.text()).toContain('· Off');
     expect(wrapper.text(), '关掉之后还挂着上一次的失败 ⇒ 看起来像"关掉反而更坏了"').not.toContain('Sync failed');
   }, 20_000);
+});
+
+/**
+ * 同步日志折叠区。
+ *
+ * 三条都在防"看起来能用、实际上是空的"：
+ * 1. 默认收起时**不该有行** —— 展开才读，这是这条线不进主屏那条承诺的形状。
+ * 2. 屏幕上必须是人话，不是 `sync_event_push` 或 `R12 · merged:3` 那种判别值原样上屏
+ *    （这正是这份日志存 token 而不存译文之后必须补齐的那一半）。
+ * 3. 展开期间自动刷新靠的是订阅账本，所以用例走一次**真同步**，不是手塞一条记录。
+ */
+describe('同步日志折叠区', () => {
+  const AT = 1_700_000_000_000;
+  const timeOf = (at: number): string => new Date(at).toLocaleTimeString();
+  const rowsOf = (wrapper: ReturnType<typeof mountPanel>) => wrapper.findAll('[data-testid="sync-log-row"]');
+
+  async function openLog(wrapper: ReturnType<typeof mountPanel>): Promise<void> {
+    await wrapper.find('[data-testid="sync-logs-toggle"]').trigger('click');
+    await flush();
+    await flush();
+  }
+
+  it('默认收起：一行都没有，点开展开才读出来', async () => {
+    await seedConfig();
+    await storage.appendSyncEvent({ kind: 'push', success: true, summary: 'R12 · merged:3' }, AT);
+    const wrapper = mountPanel();
+    await flush();
+
+    expect(rowsOf(wrapper)).toHaveLength(0);
+    // 正向对照：折叠区本身在，收起时读不到行而不是那块没了
+    expect(wrapper.find('[data-testid="sync-logs-toggle"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="sync-logs-toggle"]').attributes('aria-expanded')).toBe('false');
+
+    await openLog(wrapper);
+    expect(rowsOf(wrapper)).toHaveLength(1);
+    expect(wrapper.find('[data-testid="sync-logs-toggle"]').attributes('aria-expanded')).toBe('true');
+  });
+
+  /** 折叠内核是按钮 + `aria-expanded`，不是勾选框（既有约定 在这屏明令禁 checkbox）。 */
+  it('那颗开关是 button，不是勾选框', async () => {
+    await seedConfig();
+    const wrapper = mountPanel();
+    await flush();
+
+    const toggle = wrapper.find('[data-testid="sync-logs-toggle"]');
+    expect(toggle.element.tagName).toBe('BUTTON');
+    expect(toggle.attributes('type')).toBe('button');
+    // 正向对照：整屏的勾选框计数为 0，这条判据才不是空转
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0);
+  });
+
+  it('一行都不省时：时间、kind 符号、真文案、summary 现翻', async () => {
+    await seedConfig();
+    await storage.appendSyncEvent({ kind: 'push', success: true, trigger: 'manual', summary: 'R12 · merged:3' }, AT);
+    const wrapper = mountPanel();
+    await flush();
+    await openLog(wrapper);
+
+    const row = rowsOf(wrapper)[0]!;
+    expect(row.text()).toContain(timeOf(AT));
+    expect(row.text()).toContain('↑');
+    expect(row.text()).toContain('Pushed');
+    expect(row.text()).toContain('Revision 12');
+    expect(row.text()).toContain('merged 3');
+    expect(row.text()).toContain('the Sync now button');
+    // 反向：内部判别值与 key 名都不许出现在屏幕上
+    expect(row.text()).not.toContain('R12');
+    expect(row.text()).not.toContain('merged:3');
+    expect(row.text()).not.toContain('sync_event_push');
+    expect(row.text()).not.toContain('__');
+  });
+
+  /** 失败那一档的着色与符号走双通道（色盲/关颜色之后还得读得出是失败）。 */
+  it('错误那条用 err 判别值翻成人话，并且标成失败语气', async () => {
+    await seedConfig();
+    await storage.appendSyncEvent({ kind: 'error', success: false, summary: 'err:network' }, AT);
+    const wrapper = mountPanel();
+    await flush();
+    await openLog(wrapper);
+
+    const row = rowsOf(wrapper)[0]!;
+    expect(row.text()).toContain('✕');
+    expect(row.text()).toContain('Error');
+    expect(row.text()).toContain('no answer from the server');
+    expect(row.classes()).toContain('text-danger');
+    // 正向对照：成功那条不是失败语气
+    await storage.appendSyncEvent({ kind: 'pull', success: true, summary: 'merged:8' }, AT + 1);
+    await wrapper.find('[data-testid="sync-logs-toggle"]').trigger('click');
+    await openLog(wrapper);
+    expect(rowsOf(wrapper)[0]!.classes()).not.toContain('text-danger');
+    expect(rowsOf(wrapper)[0]!.text()).toContain('Pulled');
+  });
+
+  it('最新在上：存储是升序，界面反转（两条都在，顺序反了就红）', async () => {
+    await seedConfig();
+    await storage.appendSyncEvent({ kind: 'push', success: true, summary: 'R1' }, AT);
+    await storage.appendSyncEvent({ kind: 'push', success: true, summary: 'R2' }, AT + 60_000);
+    const wrapper = mountPanel();
+    await flush();
+    await openLog(wrapper);
+
+    const rows = rowsOf(wrapper);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.text()).toContain('Revision 2');
+    expect(rows[1]!.text()).toContain('Revision 1');
+  });
+
+  it('空态那句话（一条记录都没有时不是空白）', async () => {
+    await seedConfig();
+    const wrapper = mountPanel();
+    await flush();
+    await openLog(wrapper);
+
+    expect(wrapper.find('[data-testid="sync-logs-empty"]').text()).toBe('No sync activity yet');
+    expect(rowsOf(wrapper)).toHaveLength(0);
+  });
+
+  /**
+   * 展开状态下订阅刷新：点「立即同步」之后不用重开折叠区就该看见这一轮。
+   * 这条走的是真同步（假端口），因为它要钉的正是"引擎写事件 → 账本变 → 面板重读"这一整条链。
+   */
+  it('展开时点「立即同步」⇒ 日志自己长出这一条', async () => {
+    await seedConfig();
+    await storage.putGroup(groupFixture('会话一', [savedTabFixture('g1', 't1', 0)], { id: 'g1' }));
+    const remote = fake();
+    const wrapper = mountPanel(remote);
+    await flush();
+    await openLog(wrapper);
+    expect(wrapper.find('[data-testid="sync-logs-empty"]').exists(), '前置：这一台还没同步过').toBe(true);
+
+    await wrapper.find('[data-testid="sync-now"]').trigger('click');
+    await until(
+      () => rowsOf(wrapper).length > 0,
+      '日志里长出这一轮',
+      12_000,
+      () => `rows=${rowsOf(wrapper).length} notice="${noticeText(wrapper)}"`,
+    );
+    expect(rowsOf(wrapper)[0]!.text()).toContain('Pushed');
+    expect(rowsOf(wrapper)[0]!.text()).toContain('Revision 1');
+  }, 25_000);
+});
+
+/**
+ * 本机设备名那一行。
+ *
+ * 四条各钉一个真会坏的形状：
+ * 1. **没配 WebDAV 也在这一屏**。改名和"连没连上服务器"无关，而用户最想认出这台机器的
+ *    时候恰恰是第一次配置那一屏；跟着 `configured` 走就会在最需要时消失。
+ * 2. 落盘的是**规范化之后**的名字，输入框回填的也是它 —— 两套规范（界面 trim 一遍、
+ *    存储再 trim 一遍）迟早分叉，所以规范只有存储层那一份，界面读回来。
+ * 3. 空名不许留下一个空档案：回退默认名。
+ * 4. 改名**不标脏、不触发同步**（它不进 state、不参与 checksum）。
+ *    这条的负向断言配了正向对照（同一套夹具下 `markDirty` 确实会标脏），
+ *    否则"dirtySinceAt 永远没人写"也能绿。
+ */
+describe('本机设备名那一行', () => {
+  const nameInput = (wrapper: ReturnType<typeof mountPanel>) => wrapper.find('[data-testid="device-name-input"]');
+  const valueOf = (wrapper: ReturnType<typeof mountPanel>): string =>
+    (nameInput(wrapper).element as HTMLInputElement).value;
+
+  /** 输入框本身是 `type=text`，而连接表单的「用户名」也是 —— 用例一律按 testid 找，不按类型。 */
+  async function rename(wrapper: ReturnType<typeof mountPanel>, to: string): Promise<void> {
+    await nameInput(wrapper).setValue(to);
+    await nameInput(wrapper).trigger('blur');
+    await flush();
+    await flush();
+  }
+
+  it('没配 WebDAV 也看得见这一行，初值是档案里的名字，说明那句是真文案', async () => {
+    await seedBlank();
+    const profile = await storage.getDeviceProfile();
+    const wrapper = mountPanel();
+    await flush();
+
+    expect(nameInput(wrapper).exists()).toBe(true);
+    expect(valueOf(wrapper)).toBe(profile.name);
+    // 正向对照：这一屏确实是"还没配"的那一屏（连接表单在），所以这一行不是搭它的便车出现的
+    expect(wrapper.find('[data-testid="sync-connect"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="device-name-hint"]').text()).toContain('other devices');
+    expect(wrapper.find('[data-testid="device-name-hint"]').text()).not.toContain('device_name_hint');
+  });
+
+  it('改名失焦 ⇒ 落盘的是规范化后的名字，输入框回填同一个值', async () => {
+    await seedBlank();
+    const wrapper = mountPanel();
+    await flush();
+
+    await rename(wrapper, '  书房那台 Chrome  ');
+
+    expect((await storage.getDeviceProfile()).name).toBe('书房那台 Chrome');
+    expect(valueOf(wrapper)).toBe('书房那台 Chrome');
+  });
+
+  it('回车同样提交（有人就是不用鼠标）', async () => {
+    await seedBlank();
+    const wrapper = mountPanel();
+    await flush();
+
+    await nameInput(wrapper).setValue('客厅那台 Edge');
+    await nameInput(wrapper).trigger('keyup', { key: 'Enter', code: 'Enter' });
+    await flush();
+    await flush();
+
+    expect((await storage.getDeviceProfile()).name).toBe('客厅那台 Edge');
+    // 正向对照：这一格确实回填了，而不是只写进存储
+    expect(valueOf(wrapper)).toBe('客厅那台 Edge');
+  });
+
+  it('清空之后失焦 ⇒ 回退默认名并回填，不留一个空档案', async () => {
+    await seedBlank();
+    const wrapper = mountPanel();
+    await flush();
+    await rename(wrapper, '临时那个名字');
+    expect((await storage.getDeviceProfile()).name).toBe('临时那个名字');
+
+    await rename(wrapper, '   ');
+
+    const profile = await storage.getDeviceProfile();
+    const fallback = defaultDeviceName(
+      profile.browser as Parameters<typeof defaultDeviceName>[0],
+      profile.platform as Parameters<typeof defaultDeviceName>[1],
+    );
+    expect(profile.name).toBe(fallback);
+    expect(valueOf(wrapper)).toBe(fallback);
+  });
+
+  it('改名不标脏、也不发一个请求（它不进 state，随下一次推送自然带出）', async () => {
+    await seedConfig();
+    const remote = fake();
+    const wrapper = mountPanel(remote);
+    await flush();
+    const callsBefore = remote.calls.length;
+
+    await rename(wrapper, '只会改名字的那一次');
+
+    expect((await storage.getDeviceProfile()).name, '前置：名字确实落了盘').toBe('只会改名字的那一次');
+    expect(remote.calls.length, '改名发请求了 ⇒ 它被当成了同步源的一部分').toBe(callsBefore);
+    expect((await storage.getSyncMeta()).dirtySinceAt, '改名标脏了 ⇒ 下一轮会被它催着推一次').toBeUndefined();
+    // 正向对照：同一套夹具下，一次真实的本地改动确实会标脏（否则上面那句是否定一个没人写的键）
+    await markDirty({ storage, webdav: remote });
+    expect((await storage.getSyncMeta()).dirtySinceAt).toBeTypeOf('number');
+  }, 20_000);
+});
+
+/**
+ * ★ 日志区的高度上限（2026-10-08 真机：环 100 被 60 秒一条心跳灌满，
+ * 「同步日志」把整屏设置页拉成一条无限长的清单）。
+ *
+ * 这一档判据是**结构**的，不是像素的：jsdom 不算样式，所以钉的是"这一屏的滚动发生在
+ * 这块里面"这个决定被写进了 class，而不是"它真的只占 16rem"。
+ * 两条各钉一半：
+ * 1. 容器带 `max-h-*` + `overflow-y-auto` + `overscroll-contain`（最后那半不是修饰：
+ *    没有它，滚到尽头会带着整页一起跳，看着像列表自己乱了序）。
+ * 2. **一条都不许少**：这次改的是"往哪儿滚"，不是"给谁看"。截断成最近 20 条是另一种设计，
+ *    而它会把用户正在找的那一条藏起来 —— 所以这里断言 30 条仍然全在 DOM 里。
+ */
+describe('同步日志区的高度上限与内部滚动', () => {
+  // 这三个是上面那一节 describe 里的局部量（不是模块级），这里各带一份而不是把它们抬到顶层：
+  // 抬上去会让那一节的局部命名空间变成全文件的，而那条用例的 `AT` 与这里的是两件事。
+  const AT = 1_700_000_000_000;
+  const rowsOf = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="sync-log-row"]');
+
+  async function openLog(wrapper: VueWrapper): Promise<void> {
+    await wrapper.find('[data-testid="sync-logs-toggle"]').trigger('click');
+    await flush();
+    await flush();
+  }
+
+  it('30 条时容器带 max-height 与内部滚动，而 30 行一条都没被截掉', async () => {
+    await seedConfig();
+    for (let index = 0; index < 30; index += 1) {
+      await storage.appendSyncEvent({ kind: 'push', success: true, summary: `R${index + 1}` }, AT + index * 1000);
+    }
+    const wrapper = mountPanel();
+    await flush();
+    await openLog(wrapper);
+
+    const list = wrapper.find('[data-testid="sync-logs-list"]');
+    expect(list.exists(), '展开之后这块滚动区必须存在').toBe(true);
+    expect(list.classes()).toContain('max-h-64');
+    expect(list.classes()).toContain('overflow-y-auto');
+    expect(list.classes(), '少了 overscroll-contain，滚到尽头会带着整页跳').toContain('overscroll-contain');
+    // 键盘：不可聚焦的滚动区键盘滚不动（WCAG 2.1.1）
+    expect(list.attributes('tabindex')).toBe('0');
+
+    expect(rowsOf(wrapper), '这是"往哪儿滚"的改动，不是"给谁看"的改动 ⇒ 行数不许变少').toHaveLength(30);
+    // 正向对照：行确实在这个容器里面，不是散在它外面
+    expect(list.element.querySelectorAll('[data-testid="sync-log-row"]')).toHaveLength(30);
+  });
+
+  /** 空态那一条没有滚动区：一条记录都没有时不该摆一个空的可滚动框。 */
+  it('没有记录时是那句话、没有滚动容器', async () => {
+    await seedConfig();
+    const wrapper = mountPanel();
+    await flush();
+    await openLog(wrapper);
+
+    expect(wrapper.find('[data-testid="sync-logs-empty"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="sync-logs-list"]').exists()).toBe(false);
+  });
 });

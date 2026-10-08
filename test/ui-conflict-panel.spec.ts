@@ -12,7 +12,10 @@ const AT = 1_700_000_000_000;
 
 let storage: StoragePort;
 
-async function seedConflict(reason: StoredConflict['deleteReason'] = 'user-delete'): Promise<void> {
+async function seedConflict(
+  reason: StoredConflict['deleteReason'] = 'user-delete',
+  extra: Partial<StoredConflict> = {},
+): Promise<void> {
   await storage.putGroup(
     groupFixture('读了一半的东西', [savedTabFixture('c1', 'c1-t0', 0), savedTabFixture('c1', 'c1-t1', 1)], { id: 'c1' }),
   );
@@ -21,7 +24,7 @@ async function seedConflict(reason: StoredConflict['deleteReason'] = 'user-delet
     ...meta,
     status: 'conflict',
     pendingConflicts: [
-      { groupId: 'c1', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: '0123456789abcdef-other', deleteReason: reason },
+      { groupId: 'c1', groupTitle: '读了一半的东西', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: '0123456789abcdef-other', deleteReason: reason, ...extra },
     ],
   });
 }
@@ -79,6 +82,52 @@ describe('冲突裁决面板', () => {
     expect(text).not.toContain('user-delete');
   });
 
+  /**
+   * 删除方那台设备**叫什么**，两个方向成对钉：
+   * 解析得到名字就显示名字，解析不到回退 UUID 前 8 位 —— 既不是一整串十六进制，也不是空白。
+   * 名字与 id 各钉一半是必要的：只钉一边时"永远显示 id"和"永远显示名字"都能绿。
+   */
+  it('账上有 deletedByName ⇒ 那一行显示的是它自己的名字，不是 UUID 片段', async () => {
+    await seedConflict('user-delete', { deletedByName: '办公室那台 Edge' });
+    const wrapper = mount(ConflictPanel);
+    await flush();
+
+    const row = wrapper.find('[data-testid="conflict-row"]');
+    expect(row.exists(), '前置：这一条冲突确实上了屏').toBe(true);
+    expect(row.text()).toContain('Other device: 办公室那台 Edge');
+    // 反向：有名字时不该再把机器身份塞到用户眼前（那 8 位是 id 的头 8 个字符）
+    expect(row.text()).not.toContain('01234567');
+  });
+
+  it('账上没有名字 ⇒ 回退 UUID 前 8 位（不是整串 id，也不是空白）', async () => {
+    await seedConflict();
+    const wrapper = mount(ConflictPanel);
+    await flush();
+
+    const row = wrapper.find('[data-testid="conflict-row"]');
+    expect(row.exists(), '前置：这一条冲突确实上了屏').toBe(true);
+    expect(row.text()).toContain('Other device: 01234567');
+    expect(row.text(), '整串 id 上屏 ⇒ 用户读到的是十六进制噪声').not.toContain('0123456789abcdef-other');
+  });
+
+  /**
+   * ★ 默认名会撞：两台 Windows + Chrome 拿到的都是 `Chrome · Windows`，而浏览器不给扩展任何
+   * 主机名 API，所以没法用计算机名区分。修法是**不改名字**、只在这一行永远叠一个 id 前 4 位。
+   *
+   * 为什么还要单独一条：上面那条断的是 `toContain('Other device: 办公室那台 Edge')` ——
+   * 那是**前缀**匹配，加不加后缀都绿，所以它钉不住这 4 位。这里断完整成形的那串
+   * （含 locale 给的括号），去掉后缀当场就红。
+   */
+  it('名字后面永远带 id 前 4 位 —— 默认名撞车时这才是唯一可核对的东西', async () => {
+    await seedConflict('user-delete', { deletedByName: 'Chrome · Windows' });
+    const wrapper = mount(ConflictPanel);
+    await flush();
+
+    const row = wrapper.find('[data-testid="conflict-row"]');
+    expect(row.exists(), '前置：这一条冲突确实上了屏').toBe(true);
+    expect(row.text()).toContain('Other device: Chrome · Windows (0123)');
+  });
+
   it('选「保留」⇒ 会话还在本机，账上不再挂冲突，状态转成等待同步', async () => {
     await seedConflict();
     const wrapper = mount(ConflictPanel);
@@ -134,7 +183,7 @@ describe('冲突裁决面板', () => {
       ...meta,
       pendingConflicts: [
         ...(meta.pendingConflicts ?? []),
-        { groupId: 'c2', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'other', deleteReason: 'consumed' },
+        { groupId: 'c2', groupTitle: '会话 c2', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'other', deleteReason: 'consumed' },
       ],
     });
 
@@ -219,5 +268,52 @@ describe('冲突裁决的禁用态与并发点击', () => {
     expect(await storage.getGroup('c1'), '「保留会话」的结果被第二击覆盖掉了').toBeDefined();
     expect((await storage.getSyncMeta()).pendingConflicts ?? []).toHaveLength(0);
     wrapper.unmount();
+  });
+});
+
+/**
+ * ★ 卡片标题不许印成裸 UUID（既有约定，真机 2026-10-08 第二张截图）。
+ *
+ * 他恢复两次之后撞出 19 条冲突，屏幕上 19 张卡片每张的标题都是一串十六进制
+ * （`e4541b10-77e0-…`）—— 那等于让他从十六进制里猜"哪一条是哪个会话"。
+ * 来路是面板以前只问 `getGroup(groupId)`，而**停在冲突那一轮引擎不写本机**
+ * （不写、不推，等他裁决），所以对面那台设备本地根本没有这条会话。
+ */
+describe('冲突卡片的标题', () => {
+  it('本机没有那条会话时，标题读账上那一份，不印裸 id', async () => {
+    await seedConflict('reverted', { groupId: 'ghost-0001', groupTitle: '登录 · accounts.woozooo.com' });
+    const wrapper = mount(ConflictPanel);
+    await flush();
+
+    const title = wrapper.find('[data-testid="conflict-title"]');
+    expect(title.text()).toBe('登录 · accounts.woozooo.com');
+    expect(title.text(), '一串十六进制答不了"哪一条是哪个会话"').not.toContain('ghost-0001');
+    // 正向对照：这条会话**确实**不在本机存储里（否则上面那条是在测 getGroup 那条老路）
+    expect(await storage.getGroup('ghost-0001')).toBeUndefined();
+  });
+
+  /**
+   * 老账本（改动之前落的那笔）没有 `groupTitle` ⇒ 仍走本机那一条；
+   * 本机也没有时才回退到 id。这一格是**唯一**允许印出裸 id 的出口。
+   */
+  it('账上没有标题、本机也没有 ⇒ 才允许回退到裸 id', async () => {
+    const meta = await storage.getSyncMeta();
+    await storage.setSyncMeta({
+      ...meta,
+      status: 'conflict',
+      pendingConflicts: [
+        // 刻意不写 groupTitle：模拟升级之前落账的那一笔
+        { groupId: 'gone-9999', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'dev-2', deleteReason: 'user-delete' } as unknown as StoredConflict,
+      ],
+    });
+    const wrapper = mount(ConflictPanel);
+    await flush();
+    expect(wrapper.find('[data-testid="conflict-title"]').text()).toBe('gone-9999');
+
+    // 正向对照：同一笔账，本机有那条会话时读得到标题（回退链没有把本机那一条也堵死）
+    await storage.putGroup(groupFixture('本机还在的那条', [savedTabFixture('gone-9999', 'x', 0)], { id: 'gone-9999' }));
+    const second = mount(ConflictPanel);
+    await flush();
+    expect(second.find('[data-testid="conflict-title"]').text()).toBe('本机还在的那条');
   });
 });

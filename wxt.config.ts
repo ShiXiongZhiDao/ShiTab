@@ -40,7 +40,15 @@ export default defineConfig({
     // Firefox 要声明同一个权限，且它的 alarm **不跨浏览器会话**（MDN 原文
     // "Alarms do not persist across browser sessions."）⇒ worker 每次启动都得 ensure。
     // 为什么值得：没有它，"对面改了我要拉进来"只在扩展页面开着时发生（既有约定 的心跳挂在页面上）。
-    permissions: ['tabs', 'storage', 'alarms'],
+    //
+    // `contextMenus` 是 既有约定 加的，用来把六项「收纳」放进**网页右键**与**工具栏图标右键**
+    // 两个菜单。代价在开工前查清了，与 `alarms` 那条同形：官方权限表里这一行只有
+    // `Gives access to the chrome.contextMenus API.`，**没有 warning 行** ⇒ 安装时不多弹提示、
+    // 老用户升级不会被临时禁用（对照 `tabGroups` 那行是有警告的 "View and manage your tab groups."，
+    // 所以「按标签组收纳」将来只能走 optional，不能 required —— 既有约定 决定 3）。
+    // 它**不带来读网页内容的能力**：我们只注册 `page` 与 `action` 两个上下文，
+    // `linkUrl` / `selectionText` 那些要元素级上下文才会给的东西我们一项都不接。
+    permissions: ['tabs', 'storage', 'alarms', 'contextMenus'],
 
     // 明确不申请，留此注释防止后来者"顺手加上"：
     //   host_permissions / <all_urls> / history / bookmarks / tabGroups

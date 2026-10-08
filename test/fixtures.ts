@@ -11,8 +11,9 @@
 
 import { createGroup } from '@/core/domain/group';
 import { isRestorableUrl } from '@/core/domain/tab';
+import { decodeWire } from '@/core/domain/sync-data';
 import type { StoragePort } from '@/core/ports/storage';
-import type { SavedTab, TabGroup } from '@/shared/types';
+import type { SavedTab, SyncManifest, SyncSnapshot, TabGroup } from '@/shared/types';
 
 export async function putEmptyGroup(
   storage: StoragePort,
@@ -80,4 +81,30 @@ export function groupFixture(
     merged.tabs = merged.tabs.map((tab) => ({ ...tab, groupId: merged.id }));
   }
   return merged;
+}
+
+/**
+ * 读出远端某一份文件里的载荷。
+ *
+ * ★ 为什么测试必须有这两个函数而不能就地 `JSON.parse(remote.files.get(url))`：
+ * 线上是 gzip+base64 的 JSON 信封，就地 parse 只会读到 `{encoding,data}`
+ * 那一层壳。更糟的是**编码改了而某处测试没跟着改**时，那条用例不会红，它会安静地
+ * 读到 `undefined.state` 之前就已经断错方向 —— 或者直接绿。
+ * 这里走**生产用的同一个 `decodeWire`**，所以忘一处就是当场红。
+ *
+ * 断成 `SyncSnapshot` / `SyncManifest` 是测试侧的便利：验货本身由
+ * `verifySyncSnapshot` / `verifyManifest` 的用例负责，不在这里重复一遍。
+ */
+async function remotePayload(files: Map<string, string>, url: string): Promise<unknown> {
+  const text = files.get(url);
+  if (text === undefined) throw new Error(`远端没有这个文件：${url}`);
+  return decodeWire(text);
+}
+
+export async function remoteSnapshot(files: Map<string, string>, url: string): Promise<SyncSnapshot> {
+  return (await remotePayload(files, url)) as SyncSnapshot;
+}
+
+export async function remoteManifest(files: Map<string, string>, url: string): Promise<SyncManifest> {
+  return (await remotePayload(files, url)) as SyncManifest;
 }

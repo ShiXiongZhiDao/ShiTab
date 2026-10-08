@@ -219,7 +219,7 @@
     "message": "Permissions"
   },
   "options_permissions_body": {
-    "message": "Three permissions are requested at install: tabs (reads tab titles and URLs — without it nothing can be saved), storage (keeps your sessions in this browser) and alarms (gives the sync one heartbeat even when every page is closed). No host permission is requested at install, and adding a feature never disables the extension for existing users. Only when you turn on WebDAV sync and press Connect & sync does the browser ask you once for the single server address you typed — and only that address. It is never used to read the content of ordinary web pages. Your sessions are stored only in this browser’s local storage; there is no account and no server of ours."
+    "message": "Four permissions are requested at install: tabs (reads tab titles and URLs — without it nothing can be saved), storage (keeps your sessions in this browser), alarms (gives the sync one heartbeat even when every page is closed) and contextMenus (lets us put the stash actions into the right-click menus). No host permission is requested at install, and adding a feature never disables the extension for existing users. Only when you turn on WebDAV sync and press Connect & sync does the browser ask you once for the single server address you typed — and only that address. It is never used to read the content of ordinary web pages. Your sessions are stored only in this browser’s local storage; there is no account and no server of ours."
   },
   "open_options": {
     "message": "Settings"
@@ -319,6 +319,24 @@
   },
   "action_in_progress": {
     "message": "ShiTab: stashing…"
+  },
+  "menu_open_workbench": {
+    "message": "Open the workbench"
+  },
+  "menu_stash_window": {
+    "message": "Stash all tabs in this window"
+  },
+  "menu_stash_except_current": {
+    "message": "Stash all tabs except this one"
+  },
+  "menu_stash_left": {
+    "message": "Stash the tabs to the left"
+  },
+  "menu_stash_right": {
+    "message": "Stash the tabs to the right"
+  },
+  "menu_stash_all_windows": {
+    "message": "Stash all tabs in all windows"
   },
   "capture_failed_kept_open": {
     "message": "Stash failed — no tabs were closed."
@@ -440,6 +458,12 @@
   "sync_action_now": {
     "message": "Sync now"
   },
+  "sync_action_push_anyway": {
+    "message": "I've checked — upload this version"
+  },
+  "sync_push_anyway_hint": {
+    "message": "Your server copy will become this version. Older versions stay in Remote history and can be restored from there."
+  },
   "sync_status_label": {
     "message": "Status"
   },
@@ -530,6 +554,9 @@
   "conflict_deleted_on_other": {
     "message": "Other device: __device__"
   },
+  "conflict_device_with_code": {
+    "message": "__name__ (__code__)"
+  },
   "conflict_action_keep": {
     "message": "Keep it on this computer"
   },
@@ -551,6 +578,12 @@
   "history_total_size": {
     "message": "__count__ snapshots on the server · __size__"
   },
+  "history_total_size_at_least": {
+    "message": "__count__ snapshots on the server · at least __size__ — __unknown__ of them reported no size"
+  },
+  "history_row_push": {
+    "message": "pushed __time__ · by __device__"
+  },
   "history_revision": {
     "message": "revision __revision__"
   },
@@ -559,9 +592,6 @@
   },
   "history_action_restore": {
     "message": "Restore this version"
-  },
-  "history_restored": {
-    "message": "Restored on this computer. The next sync uploads it as a new version — nothing on the server was overwritten or deleted."
   },
   "history_keep_newest": {
     "message": "Keep the newest"
@@ -575,6 +605,27 @@
   "history_prune_done": {
     "message": "Deleted __deleted__ snapshots, kept __kept__."
   },
+  "history_show_earlier": {
+    "message": "Show __count__ earlier snapshots"
+  },
+  "history_all_shown": {
+    "message": "All __count__ snapshots are listed"
+  },
+  "conflict_reason_reverted": {
+    "message": "Replaced by a restore to an earlier version"
+  },
+  "history_restore_confirm": {
+    "message": "Restoring revision __revision__ replaces what is on this device: __brought__ sessions come back, __removed__ that are newer get deleted (they do not go to Trash), and the other device follows on the next sync."
+  },
+  "history_restore_asked": {
+    "message": "__count__ of them were deleted after that version, so the conflict list will ask you first."
+  },
+  "history_restore_confirm_action": {
+    "message": "Restore to revision __revision__"
+  },
+  "history_restored_counts": {
+    "message": "Restored: __brought__ sessions came back, __removed__ newer ones were replaced."
+  },
   "history_err_disabled": {
     "message": "WebDAV sync is off, so there is nothing to read."
   },
@@ -586,6 +637,9 @@
   },
   "history_err_no_manifest": {
     "message": "The server has no ShiTab history yet. Sync once to create the first snapshot."
+  },
+  "history_err_unreachable": {
+    "message": "Your server can't be reached right now — the network may be down, the connection timed out, your password may no longer work, or the server isn't answering. This does not mean your history is gone; it stays where it is and will show up once you can connect."
   },
   "history_err_not_confirmed": {
     "message": "Tick the confirmation first — this step deletes files on your server."
@@ -621,7 +675,10 @@
     "message": "Nothing to upload - your server already holds exactly this content."
   },
   "sync_notice_suspicious": {
-    "message": "Unusual change detected: this version has only __sessions__ sessions and __records__ records, while your server has __remoteSessions__ sessions and __remoteRecords__ records. That is too large a drop, so this version was not uploaded and nothing on your server changed. Check the recycle bin before you decide."
+    "message": "Unusual change detected: this version has only __sessions__ sessions and __records__ records, while your server has __remoteSessions__ sessions and __remoteRecords__ records. That is too large a drop, so this version was not uploaded and nothing on your server changed. Check the recycle bin first; if this deletion was intentional, use the upload button below."
+  },
+  "sync_notice_suspicious_gone": {
+    "message": "That version has changed (a sync ran in the background). Please re-check the numbers above."
   },
   "sync_notice_conflict": {
     "message": "A conflict needs your choice above before anything is uploaded."
@@ -679,6 +736,78 @@
   },
   "sync_hint_enable_first": {
     "message": "Tick the switch above first - sync is currently off, so the buttons below do nothing."
+  },
+  "device_name_label": {
+    "message": "Device name"
+  },
+  "device_name_hint": {
+    "message": "Shown on your other devices when resolving sync conflicts"
+  },
+  "sync_logs_toggle": {
+    "message": "Sync log"
+  },
+  "sync_logs_empty": {
+    "message": "No sync activity yet"
+  },
+  "sync_event_push": {
+    "message": "Pushed"
+  },
+  "sync_event_pull": {
+    "message": "Pulled"
+  },
+  "sync_event_conflict": {
+    "message": "Conflict"
+  },
+  "sync_event_suspicious": {
+    "message": "Unusual change"
+  },
+  "sync_event_error": {
+    "message": "Error"
+  },
+  "sync_event_summary_revision": {
+    "message": "Revision __n__"
+  },
+  "sync_event_summary_merged": {
+    "message": "merged __n__"
+  },
+  "sync_event_summary_conflicts": {
+    "message": "__n__ conflict(s) pending"
+  },
+  "sync_event_summary_suspicious": {
+    "message": "waiting for your confirmation"
+  },
+  "sync_event_err_credentials": {
+    "message": "the server rejected the username or password"
+  },
+  "sync_event_err_forbidden": {
+    "message": "the folder refused us (read-only, quota or server policy)"
+  },
+  "sync_event_err_not_found": {
+    "message": "the sync folder was not found"
+  },
+  "sync_event_err_parent_conflict": {
+    "message": "the remote folder structure does not line up"
+  },
+  "sync_event_err_precondition": {
+    "message": "another device wrote a newer revision first"
+  },
+  "sync_event_err_method": {
+    "message": "this server does not support a request we need"
+  },
+  "sync_event_err_server": {
+    "message": "the storage server failed"
+  },
+  "sync_event_err_network": {
+    "message": "no answer from the server (offline, DNS, TLS or timeout)"
+  },
+  "sync_event_err_response": {
+    "message": "the reply could not be read"
+  },
+  "sync_event_err_local_write": {
+    "message": "a local copy could not be saved"
+  },
+  "sync_event_err_local_state": {
+    "message": "this device's own data could not be read"
   },
   "options_nav_general": {
     "message": "General"

@@ -22,24 +22,24 @@
  * `sync_notice_in_flight`），而且必须当场给"下一次自动检查约几点"。
  * 一颗会被拒的按钮如果什么都不说，用户读到的就是"这功能坏了"。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import ActionButton from '@/components/ActionButton.vue';
 import SettingSwitch from '@/components/SettingSwitch.vue';
 import { useSyncPanel, type SyncNotice } from '@/composables/useSync';
 import { isInsecureHttp, parseBaseUrl, remoteRootUrl } from '@/core/domain/remote-layout';
 import { storagePort } from '@/shared/services';
 import { t, type MessageKey } from '@/shared/i18n';
-import type { WebDavPort } from '@/core/ports/webdav';
+import type { WebDavAdminPort, WebDavPort } from '@/core/ports/webdav';
 import type { SyncAttempt } from '@/core/application/sync-engine';
 import type { SuspiciousCounts } from '@/core/domain/safety';
-import type { SyncStatus, SyncTriggerReason } from '@/shared/types';
+import type { SyncEventKind, SyncEventRecord, SyncStatus, SyncTriggerReason } from '@/shared/types';
 
 /**
  * `webdav` 只有测试会传（真环境一律用真的 fetch 适配器）。
  * 传进来的理由是 `connect()` 一次点击就走到发请求那一步 —— 界面用例要么打真网络，
  * 要么只能测到一半。默认值是 `undefined`，`useSyncPanel` 里才决定用哪个实现。
  */
-const props = defineProps<{ webdav?: WebDavPort }>();
+const props = defineProps<{ webdav?: WebDavPort & WebDavAdminPort }>();
 
 const panel = useSyncPanel({ webdav: props.webdav });
 
@@ -49,6 +49,12 @@ const password = ref('');
 const allowInsecureHttp = ref(false);
 /** 已连接之后表单默认收起；这颗只是"展开改设置"的开关，不是功能开关。 */
 const expanded = ref(false);
+
+/**
+ * 本机设备名那一行。`deviceName` 是**输入框里的那一串**，
+ * 落盘之后会被回填成规范化过的值（见 `commitDeviceName`）。
+ */
+const deviceName = ref('');
 
 /**
  * 配过 = 有地址 **且至少成功连接过一次**（`lastTestedAt` 有值）。这一条决定"摘要还是表单"。
@@ -90,12 +96,29 @@ const remoteRoot = computed((): string => {
 
 onMounted(async () => {
   await panel.load();
+  // 这一行**不看 config**：档案是懒生成的，永远有一份，而下面那三格读的是同步配置。
+  deviceName.value = panel.deviceProfile.value?.name ?? '';
   const config = panel.config.value;
   if (!config) return;
   baseUrl.value = config.baseUrl;
   username.value = config.username;
   allowInsecureHttp.value = config.allowInsecureHttp;
 });
+
+/**
+ * 改名：失焦或回车各走这一次。
+ *
+ * 回填读的是**返回值**而不是用户刚打的那串 —— 规范化（trim / 空名回退默认 / 40 字截断）
+ * 只有存储层那一份实现，界面重算一遍就是第二套规范。用户因此在框里看见"名字现在真的叫什么"，
+ * 而不是一个看起来存好了、对面收到的却是另一个的说法。
+ *
+ * 这里**不**标脏、也**不**触发同步：设备名不进 `state`、不参与 checksum，
+ * 跟着推一版内容完全相同的东西只是白敲门（既有约定 §7.1，判据由界面用例钉着）。
+ */
+async function commitDeviceName(): Promise<void> {
+  const profile = await panel.renameDevice(deviceName.value);
+  deviceName.value = profile.name;
+}
 
 /**
  * 保存/连接失败的原因 → 文案。走穷尽映射而不是把 reason 原样印出去：
@@ -252,6 +275,7 @@ const noticeTone: Record<SyncNotice, 'ok' | 'bad' | 'neutral'> = {
   sync_notice_test_ok: 'ok',
   sync_notice_paused: 'neutral',
   sync_notice_suspicious: 'neutral',
+  sync_notice_suspicious_gone: 'neutral',
   sync_notice_conflict: 'neutral',
   sync_notice_skipped: 'neutral',
   sync_notice_in_flight: 'neutral',
@@ -342,6 +366,27 @@ async function runNow(): Promise<void> {
   await refreshLast();
 }
 
+/**
+ * 塌陷闸的出口：「我核对过了，照这一版上传」。
+ *
+ * 授权与推送**分成两步**，而且必须分开 —— 授权只写账本，推送仍走 `panel.syncNow()`
+ * 那条唯一入口，所以它照样过退避与 in-flight，这颗按钮不是绕过判据的后门。
+ * 它解的是另一个死结：闸每轮都成立、于是那一版永远推不出去。
+ *
+ * 拿不到可确认的那一版时**不推**：那说明后台已经跑过一轮、内容也变了，
+ * 照着旧授权推上去等于替用户确认一版他从没看过数字的内容。
+ */
+async function pushAnyway(): Promise<void> {
+  skipHint.value = false;
+  const armed = await panel.acknowledgeSuspicious();
+  if (!armed) {
+    setNotice('sync_notice_suspicious_gone');
+    await panel.load();
+    return;
+  }
+  await runNow();
+}
+
 /** 关掉「同步」只翻 enabled：不删远端、不清密码、不改地址。 */
 async function toggle(): Promise<void> {
   skipHint.value = false;
@@ -363,11 +408,151 @@ function formatLast(at?: number): string {
 }
 
 onMounted(refreshLast);
+
+// ---------------------------------------------------------------------------
+// 同步日志：这一屏最底部的折叠区。
+//
+// 三条形状上的决定，都是这条线自己的理由：
+// 1. **默认收起 + 展开才读**。它是一份历史，不是读数：常驻就等于在已经很短的同步区里
+//    再塞进 100 行小字，而多数时候用户只想看一眼"上次同步是几点"（那已经在状态行了）。
+// 2. **翻译在渲染时做**。存储里那串 `R12` / `err:network` 是判别值，换语言不会重写旧记录，
+//    所以现翻是"旧日志跟着新语言走"的唯一办法。
+// 3. **认不出来的片段原样兜底**，不留空白：宁可显示一串工程师能拿去排查的 token，
+//    也不要一行看起来成功、实际上是空的记录 —— 那是比 raw 更坏的失败形状。
+// ---------------------------------------------------------------------------
+
+const logsOpen = ref(false);
+const logs = ref<SyncEventRecord[]>([]);
+/** 展开期间才订阅：收起之后不该留着一条 watcher（它与 `panel.load()` 那条是两条独立订阅）。 */
+let stopLogWatch: (() => void) | undefined;
+
+async function refreshLogs(): Promise<void> {
+  logs.value = await storagePort.listSyncEvents();
+}
+
+async function toggleLogs(): Promise<void> {
+  logsOpen.value = !logsOpen.value;
+  if (!logsOpen.value) {
+    stopLogWatch?.();
+    stopLogWatch = undefined;
+    return;
+  }
+  await refreshLogs();
+  // 订阅账本而不是日志本身：引擎每一轮的收口都会写 `syncMeta`，而事件写在**它之前**
+  // （见 sync-engine 的注释），所以这一拍读回来的一定包含这一轮。
+  stopLogWatch ??= storagePort.watchSyncMeta(() => {
+    void refreshLogs();
+  });
+}
+
+onBeforeUnmount(() => {
+  stopLogWatch?.();
+  stopLogWatch = undefined;
+});
+
+/** 存储是 `at` 升序（最旧在前），界面要的是最新在上 ⇒ 在这里翻一次，不改存储秩序。 */
+const newestLogs = computed<SyncEventRecord[]>(() => [...logs.value].reverse());
+
+/**
+ * kind 的符号。与结果行同一套双通道（符号 + 文字），色盲或关掉颜色区分之后仍然读得出是哪类。
+ * `conflict` 用 `⚠`、`suspicious` 用 `⚡`：两者都要人做事，但后者是"数字对不上"而不是"实体撞车"。
+ */
+const kindSymbol: Record<SyncEventKind, string> = {
+  push: '↑',
+  pull: '↓',
+  conflict: '⚠',
+  suspicious: '⚡',
+  error: '✕',
+};
+
+const kindLabel: Record<SyncEventKind, MessageKey> = {
+  push: 'sync_event_push',
+  pull: 'sync_event_pull',
+  conflict: 'sync_event_conflict',
+  suspicious: 'sync_event_suspicious',
+  error: 'sync_event_error',
+};
+
+/**
+ * `err:<判别值>` → 文案。这张表**必须穷尽引擎写得出来的那些值**（`sync-engine.ts` 与
+ * `core/ports/webdav.ts` 的 `WebDavErrorKind`），漏一个就是屏幕上出现 raw token。
+ * 前三条复用设置页已有的那三句：同一个原因在"结果行"和"日志"里必须是同一句话。
+ */
+const errLabel: Record<string, MessageKey> = {
+  'bad-url': 'sync_err_bad_url',
+  'no-credential': 'sync_err_need_password',
+  unknown: 'sync_err_generic',
+  credentials: 'sync_event_err_credentials',
+  forbidden: 'sync_event_err_forbidden',
+  'not-found': 'sync_event_err_not_found',
+  'parent-conflict': 'sync_event_err_parent_conflict',
+  'precondition-failed': 'sync_event_err_precondition',
+  'unsupported-method': 'sync_event_err_method',
+  server: 'sync_event_err_server',
+  network: 'sync_event_err_network',
+  'bad-response': 'sync_event_err_response',
+  'durable-snapshot': 'sync_event_err_local_write',
+  // 原因尾巴（`groups-not-array` 这种）留在存储里给排查用，屏幕上说人话的那一句。
+  'invalid-local': 'sync_event_err_local_state',
+};
+
+/** 单个判别值 → 一句人话。认不出就原样返回（兜底，不留空白）。 */
+function translateToken(token: string): string {
+  if (token === 'suspicious') return t('sync_event_summary_suspicious');
+  const revision = /^R(\d+)$/.exec(token);
+  if (revision) return t('sync_event_summary_revision', { n: revision[1] as string });
+  const merged = /^merged:(\d+)$/.exec(token);
+  if (merged) return t('sync_event_summary_merged', { n: merged[1] as string });
+  const conflicts = /^conflicts:(\d+)$/.exec(token);
+  if (conflicts) return t('sync_event_summary_conflicts', { n: conflicts[1] as string });
+  const err = /^err:([a-z][a-z-]*)(?::.*)?$/.exec(token);
+  const key = err ? errLabel[err[1] as string] : undefined;
+  return key ? t(key) : token;
+}
+
+/** summary 是 `·` 分隔的若干判别值（`R12 · merged:3`），逐段翻译后再拼回去。 */
+function summaryText(event: SyncEventRecord): string {
+  const summary = event.summary;
+  if (!summary) return '';
+  return summary
+    .split('·')
+    .map((part) => translateToken(part.trim()))
+    .filter((part) => part !== '')
+    .join(' · ');
+}
+
+/** 没有 summary 的记录就不渲染那一段：一个空 `<span>` 在 flex 行里会顶出一个可见的空隙。 */
+function hasSummary(event: SyncEventRecord): boolean {
+  return summaryText(event) !== '';
+}
 </script>
 
 <template>
   <section class="mb-6 rounded-card border border-line bg-panel p-5">
     <h2 class="m-0 mb-3 text-[11px] font-extrabold tracking-widest text-muted">{{ t('options_sync_section') }}</h2>
+
+    <!--
+      本机设备名：标题正下方，**与"配没配 WebDAV"无关**地一直在这一屏。
+      放在顶上而不是摘要行里，是因为它的读者是"另一台设备上的那个人"：这台机器改了名，
+      对面要等到下一次推送才看得见，而这一屏是用户唯一会来看自己这台叫什么的地方。
+      控件是一颗普通 text 输入 + 失焦/回车提交，不是勾选框（既有约定 在这屏明令禁 checkbox），
+      也不是一颗新动作按钮 —— 它不发起任何网络动作。
+    -->
+    <div class="mb-3" data-testid="device-name-row">
+      <label class="block text-[12px]">
+        <span class="text-muted">{{ t('device_name_label') }}</span>
+        <input
+          v-model="deviceName"
+          class="mt-1 w-full rounded-control border border-line bg-panel px-2.5 py-1.5 text-[12px] outline-none"
+          type="text"
+          autocomplete="off"
+          data-testid="device-name-input"
+          @blur="commitDeviceName"
+          @keyup.enter="commitDeviceName"
+        />
+      </label>
+      <p class="m-0 mt-0.5 text-[10px] leading-relaxed text-muted" data-testid="device-name-hint">{{ t('device_name_hint') }}</p>
+    </div>
 
     <!-- ① 配过之后：一行摘要。暂停时它也得留在这（否则那颗开关自己会消失）。 -->
     <div v-if="configured && !expanded" class="flex flex-wrap items-center justify-between gap-3">
@@ -434,7 +619,7 @@ onMounted(refreshLast);
       <div class="mt-3 grid grid-cols-2 gap-3">
         <label class="block text-[12px]">
           <span class="text-muted">{{ t('options_sync_username') }}</span>
-          <input v-model="username" class="mt-1 w-full rounded-control border border-line bg-panel px-2.5 py-1.5 text-[12px] outline-none" type="text" autocomplete="off" />
+          <input v-model="username" class="mt-1 w-full rounded-control border border-line bg-panel px-2.5 py-1.5 text-[12px] outline-none" type="text" autocomplete="off" data-testid="sync-username" />
         </label>
         <label class="block text-[12px]">
           <span class="text-muted">{{ t('options_sync_password') }}</span>
@@ -483,6 +668,27 @@ onMounted(refreshLast);
       {{ noticeText }}
     </p>
     <!--
+      塌陷闸的出口。在此之前 `suspicious_change` 是一句提示加一个死结：
+      闸每轮都成立、那一版永远推不出去，用户唯一的出路是撤回删除或清空远端历史
+      （后者正是这道闸立项要防的事）。
+      只在**这个状态**下出现，点完账本转 pending、按钮随即消失 ⇒ 天然防连点。
+      tone 用默认的 ghost：它是"我确认过了"，不该和「立即同步」抢主色。
+    -->
+    <div v-if="status === 'suspicious_change'" class="mt-2" data-testid="sync-suspicious-exit">
+      <ActionButton
+        test-id="sync-push-anyway"
+        :label="t('sync_action_push_anyway')"
+        :busy-label="t('sync_busy_sync')"
+        :busy="summaryBusy"
+        :disabled="busy"
+        @click="pushAnyway"
+      />
+      <!-- 后果写在脸前（同 既有约定 那条口径）：远端会变成这一版，但旧版本仍在历史里可恢复 -->
+      <p class="m-0 mt-1 text-[10px] leading-relaxed text-muted" data-testid="sync-push-anyway-hint">
+        {{ t('sync_push_anyway_hint') }}
+      </p>
+    </div>
+    <!--
       「本轮未发起」必须当场配一句"那什么时候才会发起"。
       少了这一行，被判据拒掉的「立即同步」和一颗坏掉的按钮长得一模一样，
       而用户分辨不了的代价就是他多发一轮反馈 —— 这次那两条真机投诉就是这么来的。
@@ -490,5 +696,54 @@ onMounted(refreshLast);
     <p v-if="skipHint" class="m-0 mt-0.5 text-[10px] text-muted" data-testid="sync-next-check">
       {{ nextCheckLine }}
     </p>
+
+    <!--
+      同步日志：这一屏最底部的一条**排查面**，默认收起。
+      折叠内核是 `<button aria-expanded>`，不是勾选框 —— 既有约定 明令这屏不许再有 checkbox
+      （两颗勾选分不清是这次要修的头号原因），而它本来也不是开关，是一次展开动作。
+    -->
+    <div class="mt-4 border-t border-line pt-3" data-testid="sync-logs">
+      <button
+        class="bg-transparent p-0 text-[11px] text-muted underline"
+        type="button"
+        :aria-expanded="logsOpen ? 'true' : 'false'"
+        data-testid="sync-logs-toggle"
+        @click="toggleLogs"
+      >{{ logsOpen ? '▾' : '▸' }} {{ t('sync_logs_toggle') }}</button>
+
+      <template v-if="logsOpen">
+        <p v-if="newestLogs.length === 0" class="m-0 mt-2 text-[10px] text-muted" data-testid="sync-logs-empty">
+          {{ t('sync_logs_empty') }}
+        </p>
+        <!--
+          ★ 高度有上限，超出在**这一块里面**滚（2026-10-08 真机：环 100 被 60 秒一条心跳灌满，
+          「同步日志」把整屏设置页拉成一条无限长的清单）。
+          为什么不改成"只显示最近 20 条 + 展开"：这一屏的用途是排查，用户要的是"往回翻得动"，
+          再加一层展开状态就多一个开关、一句文案，而它解决的是同一个问题的一半。
+          `overscroll-contain` 不是修饰：没有它，滚到这块的尽头会**带着整页一起跳**，
+          看着像列表自己乱了序。`tabindex=0` 是给键盘的 —— 不可聚焦的滚动区键盘滚不动（WCAG 2.1.1）。
+        -->
+        <ul
+          v-else
+          class="m-0 mt-2 max-h-64 list-none space-y-1 overflow-y-auto overscroll-contain p-0 pr-2"
+          tabindex="0"
+          data-testid="sync-logs-list"
+        >
+          <li
+            v-for="event in newestLogs"
+            :key="event.id"
+            class="flex flex-wrap items-baseline gap-x-2 text-[10px]"
+            :class="event.success ? 'text-muted' : 'font-bold text-danger'"
+            data-testid="sync-log-row"
+          >
+            <span class="font-mono">{{ new Date(event.at).toLocaleTimeString() }}</span>
+            <span aria-hidden="true">{{ kindSymbol[event.kind] }}</span>
+            <span>{{ t(kindLabel[event.kind]) }}</span>
+            <span v-if="event.trigger" data-testid="sync-log-trigger">{{ t(triggerLabel[event.trigger]) }}</span>
+            <span v-if="hasSummary(event)" data-testid="sync-log-summary">{{ summaryText(event) }}</span>
+          </li>
+        </ul>
+      </template>
+    </div>
   </section>
 </template>

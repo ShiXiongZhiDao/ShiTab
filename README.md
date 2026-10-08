@@ -19,7 +19,7 @@
 - Later, from anywhere: open the group and the tabs come back **in the order they were in** — into this
   window, a new one, or an incognito one.
 - The group name is a placeholder. Click it and type what those tabs were actually about.
-- Everything lives in your own browser's local storage. **No account, no server of ours, no telemetry,
+- Everything lives in your own browser's local storage. **No account, no server of mine, no telemetry,
   and no permission to read the sites you visit.**
 - Want the same lists on a second computer? Point it at a WebDAV folder you already own. Off by default.
 - Free, MIT licensed, and the whole project is in this repository — including the tests that pin the
@@ -27,11 +27,24 @@
 
 ## What it is not
 
-- **Not a cloud tab manager.** Nothing of yours sits on our infrastructure, because we have none.
+- **Not a cloud tab manager.** Nothing of yours sits on my infrastructure, because I have none.
 - **Not a session recorder.** It saves the tabs you put away, not your browsing history — it cannot read
   it (no `history` permission).
 - **Not a visual tab grid.** A group is a list of titles and addresses, with favicons loading lazily.
 - **Not "keep everything open forever".** A restored group is consumed; if one should stay, lock it.
+
+## Why I built this
+
+My own browser has crashed on me more than once. Every time it came back, the tabs I had stashed in OneTab
+were gone. Their sync service would have covered this, but it's $39.99 per licence per year, and I wasn't
+going to pay a subscription to keep a list of pages. The other tab-list extensions I tried lost them the
+same way.
+
+So the design hangs off the one thing I actually lost: **the list has to outlive the browser.** What you
+stash is written into your browser's own local storage *before* any of its tabs close — the same storage that
+is still there after a restart, a forced quit or a crash. What does remove it is uninstalling the extension
+or clearing site data, which is why *Export as web page* and the optional WebDAV sync exist: a second copy
+you hold yourself, not a second copy on someone's server.
 
 ## Why this instead of a tab-list extension
 
@@ -41,7 +54,7 @@ don't control, or it asks to read the sites you visit.
 | What you want | OneTab | ShiTab |
 |---|---|---|
 | Take the list across browsers | their sync service, **$39.99 per licence per year** | a WebDAV folder you already own: nothing to pay, nothing to register |
-| Permissions asked at install | 7 in the build we inspected, including `scripting` and `unlimitedStorage` | **3**: `tabs`, `storage`, `alarms` |
+| Permissions asked at install | 7 in the build I inspected, including `scripting` and `unlimitedStorage` | **4**: `tabs`, `storage`, `alarms`, `contextMenus` |
 | Read the code, reuse it | their site links to no repository | MIT, in this repository |
 
 ## Features
@@ -50,7 +63,9 @@ don't control, or it asks to read the sites you visit.
 
 Click the toolbar icon: this window's tabs become **one group** and close. One gesture, no menu in
 between — a toolbar button that has a popup can't also report a plain click, and that click is the whole
-point. Pinned tabs stay put by default; one setting changes that.
+point. Pinned tabs stay put by default; one setting changes that. Pages no extension is allowed to
+reopen — `chrome://`, `edge://`, the new-tab page, another extension's own pages — are neither recorded
+nor closed: they just stay where they are, so one stash does not always empty the window.
 
 ### Getting them back
 
@@ -60,7 +75,7 @@ group — with two exceptions: if nothing actually opened, nothing is deleted, a
 consumed.
 
 Right-click an entry and you get the **browser's own** link menu (open in new tab / new window /
-incognito, copy link), because entries are rendered as real `<a>` elements. We wrote no menu and asked
+incognito, copy link), because entries are rendered as real `<a>` elements. I wrote no menu and asked
 for no permission to get one.
 
 ### Categories
@@ -77,7 +92,7 @@ lines inside it; both granularities live in one view, and a row whose lines are 
 a row. *Restore* and *Delete forever* are each two clicks.
 
 Tabs that no browser can re-open (`about:blank`, an extension's own page) **never enter the trash**:
-promising a restore we cannot perform is worse than not pretending.
+promising a restore I cannot perform is worse than not pretending.
 
 ### Locking
 
@@ -99,7 +114,7 @@ Synology box or any NAS you already run, 坚果云 (Nutstore) — and it keeps y
 address it ever learns is the one you typed, and the credentials stay on your machine.
 
 
-- your drive has to hand over a WebDAV address and a folder it lets us write into; Nutstore expects an
+- your drive has to hand over a WebDAV address and a folder it lets me write into; Nutstore expects an
   app password generated on its own site, with your account email as the username.
 
 ### Settings, theme and language
@@ -188,13 +203,16 @@ as a web page, and finally delete it and fish it out of the trash.
 
 ## Permissions, plainly
 
-Identical on Chrome, Edge and Firefox: **`tabs`, `storage`, `alarms`**.
+Identical on Chrome, Edge and Firefox: **`tabs`, `storage`, `alarms`, `contextMenus`**.
 
 - `tabs` — to read the titles, addresses and favicons of the tabs you stash, and to close and re-open
   them. This is the only permission that produces an install warning.
 - `storage` — everything lives in the browser's own local storage.
 - `alarms` — one beat every 5 minutes, and only while sync is on, so a browser with all its tabs closed
   still pulls what the other device pushed.
+- `contextMenus` — lets me put the stash actions into two right-click menus: on a web page, and on the
+  toolbar icon. I register page-level and action-level items only, so link targets and selected text
+  are never handed to me.
 
 `optional_host_permissions` declares `https://*/*` and `http://*/*`, but **required `host_permissions` is
 absent**: the optional set produces no install warning, and at runtime only the one origin you typed is
@@ -210,7 +228,7 @@ write happens inside a user gesture.
 No account, no login, no server that receives anything, no analytics code. Groups, categories, the trash
 and settings live in your browser's local storage, and clearing site data or uninstalling removes them —
 so export a file or turn on syncing before you reset a browser. "Export as web page" writes to a file you
-choose. Firefox store metadata declares `data_collection_permissions: none`: we neither collect nor
+choose. Firefox store metadata declares `data_collection_permissions: none`: I neither collect nor
 transmit data.
 
 ## FAQ
@@ -238,7 +256,7 @@ No. You need a WebDAV folder you already control, and its credentials stay on yo
 
 **Q: Does it work with my browser's own tab groups?**
 Independently. Browser tab groups are a per-window visual thing; a ShiTab group is a saved list that
-outlives the window. Nothing is read from or written to `tabGroups` — we don't ask for it.
+outlives the window. Nothing is read from or written to `tabGroups` — I don't ask for it.
 
 **Q: Does it work on my phone?**
 No. It's a desktop browser extension.

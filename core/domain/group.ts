@@ -64,7 +64,7 @@ export function toIndexEntry(group: TabGroup): GroupIndexEntry {
 }
 
 /**
- * 列表顺序：置顶优先，然后 **sortOrder 降序**，最后 createdAt 降序兜底。
+ * 列表顺序：置顶优先，然后 **sortOrder 降序**，再 createdAt 降序，最后 `id` 升序兜底。
  *
  * 降序是 既有约定 定的：收纳类工具最该看到的是**刚收进去的那一批**，
  * 而 `nextSortOrder()` 给的永远是 `max + 1`，所以"新会话落在最前"与"降序显示"
@@ -73,13 +73,26 @@ export function toIndexEntry(group: TabGroup): GroupIndexEntry {
  * createdAt 兜底是必要的：两个分组可能因导入或自愈而拿到相同的 sortOrder，
  * 没有第三级比较符的话排序不稳定，用户会看到列表在刷新时自己跳动。
  *
+ * 第四级 `id` 是 2026-10-08 补的，动机不是观感而是**摘要**：同一批收纳会给多个会话
+ * 写下同一个 `createdAt`，前三级全相等时数组顺序就退回"谁先落盘谁在前"，
+ * 而两台设备落盘的先后不一样 ⇒ 同一堆内容算出两个 `stateChecksum` ⇒ 每轮同步各造一个快照
+ * 。显示层从此也多了一条"同序时按 id"的确定顺序，没有别的可见变化。
+ *
  * ⚠ 方向是**这里**唯一的事实来源。任何"把显示位置翻译成 sortOrder"的地方都必须走
  * `sortOrderAtPosition()`，否则拖拽会弹回原位（升序/降序混用就是这个症状）。
+ *
+ * ⚠ 入参是这四列的**公共形状**，不是 `GroupIndexEntry`：`core/domain/state-order.ts`
+ * 拿它排整份 `StoredState`（那里手上是 `TabGroup`，没有 `tabCount`）。
+ * 会话的顺序因此全仓只有这一条规则 —— 分成两份实现正是那次互推的根因。
  */
-export function compareGroups(a: GroupIndexEntry, b: GroupIndexEntry): number {
+export function compareGroups(
+  a: Pick<TabGroup, 'id' | 'isPinned' | 'sortOrder' | 'createdAt'>,
+  b: Pick<TabGroup, 'id' | 'isPinned' | 'sortOrder' | 'createdAt'>,
+): number {
   if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
   if (a.sortOrder !== b.sortOrder) return b.sortOrder - a.sortOrder;
-  return b.createdAt - a.createdAt;
+  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /**

@@ -2,8 +2,12 @@
  * SavedTab 的领域判断：一条浏览器 tab 该不该被收纳、存下来之后能不能恢复。
  *
  * 两个谓词**互不等价**，别合并：
- * - isCapturableTab  —— 这条 tab 是否属于"今天要收走的东西"（决定存不存）
+ * - isCapturableTab  —— 这条 tab 是否属于"今天要收走的东西"（决定存不存，也决定关不关）
  * - isRestorableUrl  —— 这个 URL 能否被 tabs.create 打开（决定存了之后能不能开回来）
+ *
+ * 既有约定 之后前者**读了**后者一眼（不可恢复的页面不进会话），但这仍然是两个判据：
+ * 后者还要单独回答"存储里那条**老记录**能不能被开出来"，而那些记录不是这个过滤器造出来的。
+ * 把它们合并成一个函数，表现就是"读侧对新数据成立、对老数据一概不认"。
  */
 
 import type { BrowserTab, CloseState, SavedTab } from '@/shared/types';
@@ -15,6 +19,10 @@ import { domainOf, newId } from '@/shared/utils';
  *
  * 这是**产品判断**，不是平台事实的完整映射 —— 见 既有约定 的待重开项。
  * 判据是"扩展调用 tabs.create 打开它会不会被平台拒绝"。
+ *
+ * ⚠ 既有约定 之后这张表的**分量变了**：它以前只决定"存下来之后能不能点"，
+ * 现在还决定"这条 tab 进不进会话、要不要被关掉"。所以表里错杀一项的代价，
+ * 从"少一个恢复按钮"变成了"那次收纳里根本没有这条记录"。改这张表要按这个代价来审。
  */
 const NON_RESTORABLE_PREFIXES: readonly string[] = [
   'chrome://',
@@ -50,8 +58,12 @@ export function isRecoverableRecord(tab: { url?: string; restorable?: boolean })
 /**
  * 这个 URL 能否重新打开？
  *
- * 空串 / 解析失败一律判 false —— 判"不可恢复"的代价只是 UI 上少一个恢复按钮，
- * 判"可恢复"的代价是用户点下去什么也没发生。
+ * 空串 / 解析失败一律判 false。
+ * ⚠ 这句注释原来写的是"判'不可恢复'的代价只是 UI 上少一个恢复按钮" —— 既有约定 之后
+ * 那个代价变成了"这条 tab 整条不进会话"（`isCapturableTab` 读它），所以两个方向的代价
+ * 现在**不再一边倒**：判错"不可恢复"会丢一条记录，判错"可恢复"会得到一条点了没反应的记录。
+ * 仍然保留 fail-closed（认不出来就当不可恢复）的理由是：一条 URL 都读不出来的记录
+ * 本来就开不出来，把它留在会话里只是把失败从"收纳时"推到"点击时"。
  */
 export function isRestorableUrl(url: string | undefined): boolean {
   if (!url) return false;
@@ -91,20 +103,29 @@ export interface CapturePolicy {
 }
 
 /**
- * 这条 tab 是否纳入收纳？
+ * 这条 tab 是否纳入收纳？**"该不该进会话"这一格只在这一个函数里**。
  *
- * 排除两样东西：
+ * 排除三样东西：
  * 1. **入口页自己**（AC-06）；
- * 2. 用户钉住的 tab —— 但仅在 `includePinnedTabs` 为 false 时（V1.1 §5 的默认档）。
+ * 2. 用户钉住的 tab —— 但仅在 `includePinnedTabs` 为 false 时（V1.1 §5 的默认档）；
+ * 3. **不能直接恢复的页面** —— `chrome://` / `edge://` / 扩展页 / 新标签页
+ *    （既有约定 反转 既有约定 第 1 条，回到 V1.1 §4.2 那个当初被判"不采纳"的口径）。
+ *    这类页面**不收、也不关**：不收 = 会话里没有它；不关 = 它留在浏览器里原封不动。
+ *    关闭的集合是从这里出来的（`capture-window.ts` 的 `selectableToClose(capturable, …)`），
+ *    所以第三条**必须**写在这个函数里而不是别处 —— 只把记录滤掉、把关闭留在集合上，
+ *    结果就是"设置页被关掉了，而会话里查不到它"，那是这一整轮要避免的那一种错。
  *
- * 注意：这与 既有约定 §2"排除扩展页、浏览器内部页等不可操作页面"**不一致** ——
- * 既有约定 已定案"这类页面照样保存、标记 restorable=false、恢复时跳过"，
- * PRD 说的"排除"由本函数之外的**关闭环节**承担（关不掉的记 closeState='failed'）。
- * V1.1 设计包 §4.2 想把这些页面从会话里彻底剔除，已由 既有约定 判为不采纳。
+ * 与 既有约定 §2「排除扩展页、浏览器内部页等不可操作页面」现在**一致**了 ——
+ * 那句"排除"以前只由关闭环节承担（关不掉的记 `closeState='failed'`，记录照留），
+ * 现在保存与关闭两个环节一起排除。既有约定 签的"照样保存"由 既有约定 撤销。
+ *
+ * ⚠ 这一条只管**新收纳**。老会话、老备份、老同步载荷里仍然有 `restorable: false` 的行，
+ * 读侧（恢复、回收站、撤销、badge）一律继续按 `isRecoverableRecord` 容忍它们。
  */
 export function isCapturableTab(tab: BrowserTab, policy: CapturePolicy): boolean {
   if (isEntryTabUrl(tab.url)) return false;
   if (tab.pinned && !policy.includePinnedTabs) return false;
+  if (!isRestorableUrl(tab.url)) return false;
   return true;
 }
 
@@ -136,6 +157,9 @@ export function toSavedTab({
     originalPinned: tab.pinned,
     wasActive: tab.active,
     closeState,
+    // 新收纳恒为 true（不可恢复的页面已经被 `isCapturableTab` 挡在门外）。
+    // 仍然现算而不是写死 `true`：这个布尔与 `isRestorableUrl` 同源是 `isRecoverableRecord`
+    // 那条判据的前提，写死就等于承认"这两处的值可以各长各的"。
     restorable: isRestorableUrl(tab.url),
   };
   const favicon = tab.favIconUrl;

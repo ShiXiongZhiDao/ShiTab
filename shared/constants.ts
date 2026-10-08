@@ -37,10 +37,15 @@ export const STORAGE_KEYS = {
   /** 回收站：一个键装整个数组。 */
   trash: `${STORAGE_PREFIX}:trash`,
   /**
-   * 本机设备身份。一个随机 UUID，**不同步、不进备份**。
-   * 它只回答"这条删除是谁干的"，不回答"这是哪台机器"——后者我们不需要，也不该猜。
+   * 本机设备档案：`{ id, name, browser, platform, createdAt }`。
+   * 身份与设备名都在这一份里 —— **不同步、不进备份**（把身份同步过去等于两台设备共用一个署名）。
+   *
+   * ⚠ 它取代了原来那键 `shitab:device`（一个裸 UUID）。那一键连同"老安装用它补建档案"的
+   * 兼容分支一起删掉了（本轮 Q8 的定案）：开发期没有值得保住的数据，而那条分支一旦留下，
+   * "设备身份到底从哪个键读"就永远有两个答案 —— 现在只有 `DeviceProfile` 一个。
+   * 老机器上残留的那键不会被任何代码读到，就让它留在那儿。
    */
-  device: `${STORAGE_PREFIX}:device`,
+  deviceProfile: `${STORAGE_PREFIX}:device:profile`,
   /** 同步配置（无密码）。 */
   syncConfig: `${STORAGE_PREFIX}:sync:config`,
   /** 同步引擎的账本。整块读写，因为它只被引擎一个人写。 */
@@ -51,7 +56,58 @@ export const STORAGE_KEYS = {
    * 密码一旦和 baseUrl 住在同一个对象里，就迟早会顺着那条路径走到用户下载的 JSON 里。
    */
   syncCredential: `${STORAGE_PREFIX}:sync:credential`,
+  /**
+   * 同步事件环形缓冲（最近 100 条，既有约定）。纯本机排查面：
+   * **不进** `snapshotAll()`、不进快照的 `state`、不上远端 —— 它记的是"这台机器上发生过什么"，
+   * 把它同步出去等于让两台设备共用一份日志，那比没有日志更误导。
+   */
+  syncEvents: `${STORAGE_PREFIX}:sync:events`,
 } as const;
+
+/**
+ * 同步事件环形缓冲的条数上限。
+ *
+ * 100 条 ≈30KB 量级，在 `storage.local` 的默认配额里不算什么；再大就是"用户翻不到、
+ * 也记不住"的规模。裁剪只发生在写入侧一处（`appendSyncEvent`），读取侧不负责。
+ */
+export const SYNC_EVENT_LIMIT = 100 as const;
+
+/**
+ * 远端历史保留多少版。超出窗口的**直接删掉**：快照文件 + 那一版的 manifest。
+ *
+ * 这一格改的是 既有约定 §18 原来那句「默认永不自动删」：那条的动机是"删远端历史正是这套设计
+ * 要防的那类事"，它防的是**普通同步顺手删**（合并、重试、退避都不许碰删除），
+ * 不是"永远不许有上限"。现在上限是一个显式的、写死在常量里的策略，
+ * 删除能力仍然只走 `WebDavAdminPort`（同步引擎不注入 admin 就一行删除代码都写不出来）。
+ *
+ * 取 100 的两条理由：一是与同步日志环同数，用户在一处见过 100 这个数字就不用记第二个；
+ * 二是 `manifest.history` 每轮都要整个下载（它跟着 manifest 走），100 条约 10 KB，
+ * 200 条就是 20 KB 的固定税负压在**每一次同步**上，而翻到几十版之前的人不存在。
+ */
+export const REMOTE_HISTORY_LIMIT = 100 as const;
+
+/**
+ * 一轮最多删几版（既有约定 的代价那一条，落地在这里）。
+ *
+ * 保留策略是**推送顺手做**的，所以一次裁太多会当场把配额吃掉：坚果云免费档 600 请求 / 30 分钟，
+ * 而每删一版要两次 DELETE（快照 + 那一版的 manifest）。攒过 100 版的存量远端（改动之前推出来的、
+ * 或者用户换了新基数重来过的那种）第一次推送会一次滚出上百条 —— 没有这一格就是一次上百个请求。
+ *
+ * 取 20 = 40 次 DELETE，占免费档一轮窗口的 6.7%，加上推送本身那 3 笔也不至于把节拍饿死。
+ * 删不掉的**留在账本里**下一轮再删（`pickRolledOff` 之后由 `pruneRolledOff` 的返回值决定），
+ * 所以这一刻账本会比窗口宽，最多 100 + 溢出条数，几轮之后自己收回去。
+ * 稳态下每轮只滚出一条，这一格根本不触发 —— 它是给"第一次"上的保险。
+ */
+export const REMOTE_RETENTION_MAX_DELETES = 20 as const;
+
+/**
+ * `SyncEventRecord.summary` 的长度上限。
+ *
+ * 摘要存的是判别值 + 计数（`R12` / `merged:3` / `err:network`），正常用不到 40 字符；
+ * 这一格防的是"把异常原因整段原文塞进摘要"—— 那种串能到几百字节，100 条就成了一份日志数据库。
+ * 截断落在写入侧一处，`Array.from` 保证不切断多字节。
+ */
+export const SYNC_EVENT_SUMMARY_MAX = 80 as const;
 
 /**
  * 耐久快照信封的两个字面值。
@@ -72,6 +128,11 @@ export const STATE_SCHEMA_VERSION = 1 as const;
  */
 export const SNAPSHOT_FORMAT = 'shitab-snapshot' as const;
 export const MANIFEST_FORMAT = 'shitab-manifest' as const;
+/** 指针文件的格式。单开一个而不是复用 `shitab-manifest`：
+ * 指针每轮都要读（后台 alarm 5 分钟一次），所以它必须**小**——只带 revision 与
+ * 文件名，不带 history 与设备表。复用 manifest 就等于每天 288 次下载整张历史表。
+ */
+export const POINTER_FORMAT = 'shitab-pointer' as const;
 
 /**
  * 远端目录名。大小写跟着产品名走（ShiTab），因为这是用户在文件管理器里看得见的东西。

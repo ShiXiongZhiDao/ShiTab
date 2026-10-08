@@ -19,11 +19,14 @@
 import type { SelfHealReport, StoragePort } from '@/core/ports/storage';
 import type {
   Category,
+  DeviceProfile,
   GroupIndexEntry,
   Settings,
   SlotName,
   SlotValue,
   StorageMeta,
+  SyncEventInput,
+  SyncEventRecord,
   SyncMeta,
   TabGroup,
   Tombstone,
@@ -31,11 +34,13 @@ import type {
   UiPrefs,
   WebDavConfig,
 } from '@/shared/types';
-import { SCHEMA_VERSION, STORAGE_KEYS } from '@/shared/constants';
+import { SCHEMA_VERSION, STORAGE_KEYS, SYNC_EVENT_LIMIT, SYNC_EVENT_SUMMARY_MAX } from '@/shared/constants';
 import { compareGroups, toIndexEntry } from '@/core/domain/group';
+import { sortedTombstones, sortedTrash } from '@/core/domain/state-order';
 import { isDanglingCategory, sortedCategories } from '@/core/domain/category';
 import { DEFAULT_SETTINGS, mergeSettings } from '@/core/domain/settings';
 import { DEFAULT_UI_PREFS, mergeUiPrefs } from '@/core/domain/ui-prefs';
+import { buildDeviceProfile, normalizeDeviceName } from '@/core/domain/device-profile';
 import { newId, now } from '@/shared/utils';
 
 /** 存储项自身的 schema 版本（与 meta.schemaVersion 是两回事：后者标导出文件格式）。 */
@@ -139,8 +144,13 @@ const snapshotPointer = defineItem<SlotName>(STORAGE_KEYS.snapshotPointer, 'a', 
 const tombstonesItem = defineItem<Tombstone[]>(STORAGE_KEYS.tombstones, [], 1);
 /** 回收站：一个键装整个数组。软删除是低频动作，不值得为它再造一键一条 + 索引。 */
 const trashItem = defineItem<TrashEntry[]>(STORAGE_KEYS.trash, [], 1);
-/** 本机设备身份。v1 无迁移链：它是**能整个重生成**的东西，丢了就当第一次用。 */
-const deviceItem = defineItem<string>(STORAGE_KEYS.device, '', 1);
+/**
+ * 本机设备档案。v1 无迁移链：它是**能整个重生成**的东西，丢了就当第一次用。
+ * 它同时是设备身份的唯一来源 —— 原来那键 `shitab:device`（裸 UUID）连同
+ * "老安装用它补建档案"的兼容分支一起没了（本轮 Q8 定案：开发期没有值得保住的数据，
+ * 而"身份从哪个键读"不许有两个答案）。
+ */
+const deviceProfileItem = defineItem<DeviceProfile | null>(STORAGE_KEYS.deviceProfile, null, 1);
 
 /**
  * 同步配置与账本。
@@ -169,28 +179,41 @@ const syncMetaItem = defineItem<SyncMeta>(STORAGE_KEYS.syncMeta, DEFAULT_SYNC_ME
 /** 密码。空串 = 没存。它**不在** `snapshotAll()` 的载荷里，也永远不会被序列化进备份。 */
 const credentialItem = defineItem<string>(STORAGE_KEYS.syncCredential, '', 1);
 
+/**
+ * 同步事件环形缓冲。v1 无迁移链：它是**能整个丢掉**的排查面 ——
+ * 键没了用户只是看不见历史，一条真数据都不少，与 `ui` 那条同一个理由。
+ *
+ * ⚠ 它**不进** `snapshotAll()`：那份载荷是用户下载的备份，把"这台机器同步过什么"
+ * 打包出去，还原到另一台机器上就成了伪造的回忆。
+ */
+const syncEventsItem = defineItem<SyncEventRecord[]>(STORAGE_KEYS.syncEvents, [], 1);
+
+/**
+ * 摘要长度截在 `SYNC_EVENT_SUMMARY_MAX` 以内。
+ *
+ * 用 `Array.from` 而不是 `slice`：字符级截断会把一个 emoji / 生僻字切成半个代理对，
+ * 屏幕上剩下的是替换字符 —— 而这条字符串正是用户排查时要读的那一句。
+ */
+function clampSummary(summary: string | undefined): string | undefined {
+  if (summary === undefined) return undefined;
+  const chars = Array.from(summary);
+  return chars.length > SYNC_EVENT_SUMMARY_MAX ? chars.slice(0, SYNC_EVENT_SUMMARY_MAX).join('') : summary;
+}
+
 const SLOT_ITEMS: Record<SlotName, typeof snapshotSlotA> = {
   a: snapshotSlotA,
   b: snapshotSlotB,
 };
 
-/** 墓碑要按删除时间排：合并时"谁更晚"是唯一的判据来源。 */
-function sortedTombstones(items: Tombstone[]): Tombstone[] {
-  return [...items].sort((a, b) => a.deletedAt - b.deletedAt);
-}
-
 /**
- * 回收站按删除时间降序，与主列表"最新在前"同一条轴。
+ * 墓碑与回收站的顺序**不在这里定义**。
  *
- * `group.id` 做第二位**不是**为了好看：同一天删掉两个会话会有相同的 `deletedAt`，
- * 而数组顺序进 checksum。没有这条 tiebreak，同一份事实在两台机器上能排出两种顺序，
- * 于是每轮同步都多出一个"内容看起来一样"的远端快照（既有约定 的去重防的就是这个）。
+ * 原来这两个 `sorted*` 是本文件的私有实现，而 `core/domain/merge.ts` 排会话、
+ * `core/application/durable-snapshot.ts` 读回来时又不排 —— 同一句判据三份实现，
+ * 三份不一致的那一台设备就会每轮都认为自己有新东西要推（数组顺序进 `stateChecksum`，
+ * 而 `canonicalJson` 只管键序）。现在唯一的定义在 `core/domain/state-order.ts`，
+ * 落盘排序与同步摘要排序走同一份，本文件只 import。
  */
-function sortedTrash(items: TrashEntry[]): TrashEntry[] {
-  return [...items].sort(
-    (a, b) => b.deletedAt - a.deletedAt || (a.group.id < b.group.id ? -1 : a.group.id > b.group.id ? 1 : 0),
-  );
-}
 
 /**
  * v2 的 TabGroup 没有 `locked`。缺失一律按 false：
@@ -647,17 +670,35 @@ export function createStoragePort(): StoragePort {
     /**
      * 先到先得，靠"写完再读一次"收敛，不靠锁。
      *
-     * 三个 surface 都可能在第一次使用时发现"还没有身份"。真撞上就是两个候选 UUID 先后落盘，
-     * 最后落盘的那个赢 —— 这对数据正确性没有影响（身份只是墓碑的署名），
+     * 三个 surface 都可能在第一次使用时发现"还没有档案"。真撞上就是两份候选档案先后落盘，
+     * 最后落盘的那份赢 —— 这对数据正确性没有影响（身份只是墓碑的署名），
      * 但"每个 surface 各自一个身份"是必须避免的：那会让同一台机器在同步里看起来像三台设备，
-     * 冲突 UI 会显示两台不存在的主机。所以身份只存一处、读取一律走这个函数。
+     * 冲突面板会显示两台不存在的主机。所以档案只存一处、读取一律走这个函数。
      */
+    async getDeviceProfile() {
+      const held = await deviceProfileItem.getValue();
+      if (held) return held;
+      const mine = buildDeviceProfile(now(), newId());
+      await write(() => deviceProfileItem.setValue(mine));
+      return (await deviceProfileItem.getValue()) ?? mine;
+    },
+
+    /** 门面：身份只有一个来源（上面那颗），这里不许再自己生成一次。 */
     async getDeviceId() {
-      const stored = await deviceItem.getValue();
-      if (stored) return stored;
-      const mine = newId();
-      await write(() => deviceItem.setValue(mine));
-      return (await deviceItem.getValue()) || mine;
+      return (await this.getDeviceProfile()).id;
+    },
+
+    /**
+     * 改名只写档案这一个键。它**不碰 `rev`、不碰 `meta.updatedAt`**：
+     * 那两个是"分组数据变了"的广播线，而设备名不是数据（不进 state、不进 checksum）。
+     * 跟着广播一次会让每个 surface 重读索引、让同步标记成本机变脏 ——
+     * 用户只是给这台机器起了个名字，不是改了一个会话。
+     */
+    async setDeviceName(name) {
+      const profile = await this.getDeviceProfile();
+      const next: DeviceProfile = { ...profile, name: normalizeDeviceName(name, profile) };
+      await write(() => deviceProfileItem.setValue(next));
+      return next;
     },
 
     async getWebDavConfig() {
@@ -697,6 +738,41 @@ export function createStoragePort(): StoragePort {
 
     watchSyncMeta(listener) {
       return syncMetaItem.watch((value) => listener({ ...DEFAULT_SYNC_META, ...(value ?? {}) }));
+    },
+
+    // --- 同步事件日志---------------------------------------------
+
+    async listSyncEvents() {
+      return (await syncEventsItem.getValue()) ?? [];
+    },
+
+    /**
+     * 追加一条并裁成最近 `SYNC_EVENT_LIMIT` 条。
+     *
+     * 两处刻意的写法：
+     * 1. **整段 catch、失败返回一条内存记录**。这份日志的唯一读者是"排查同步的人"，
+     *    而它写在同步的收口路径上 —— 让它能把一次成功的同步弄成失败，就成了
+     *    "日志比被记录的事更重要"，那是本末倒置。
+     * 2. **按 `at` 稳定排序后再裁**。调用方（引擎）传的是这一轮的 `at`，正常是单调的；
+     *    但排序这一道保证"存的就是升序"这条合同**不依赖调用方守规矩** ——
+     *    UI 反转取最新在上的前提就是它。等值时 `sort` 稳定 ⇒ 写入顺序不被打乱。
+     */
+    appendSyncEvent(input, at = now()) {
+      const summary = clampSummary(input.summary);
+      const record: SyncEventRecord = {
+        id: newId(),
+        at,
+        kind: input.kind,
+        success: input.success,
+        ...(input.trigger === undefined ? {} : { trigger: input.trigger }),
+        ...(summary === undefined ? {} : { summary }),
+      };
+      return write(async () => {
+        const held = (await syncEventsItem.getValue()) ?? [];
+        const next = [...held, record].sort((a, b) => a.at - b.at).slice(-SYNC_EVENT_LIMIT);
+        await syncEventsItem.setValue(next);
+        return record;
+      }).catch(() => record);
     },
   };
 }

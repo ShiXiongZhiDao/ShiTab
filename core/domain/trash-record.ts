@@ -33,6 +33,8 @@ const REASON_PRIORITY: Record<DeleteReason, number> = {
   'user-delete': 0,
   consumed: 1,
   undone: 2,
+  // 「恢复到某一版」换掉的记录：最不像用户自己的删除，所以排最后。
+  reverted: 3,
 };
 
 /**

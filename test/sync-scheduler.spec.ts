@@ -37,7 +37,7 @@ describe('decideSync 的五道闸', () => {
     expect(decide({
       enabled: false,
       inFlight: true,
-      meta: meta({ dirtySinceAt: AT, pendingConflicts: [{ groupId: 'g', deletedAt: 1, editedAt: 2, deletedByDeviceId: 'd', deleteReason: 'user-delete' }] }),
+      meta: meta({ dirtySinceAt: AT, pendingConflicts: [{ groupId: 'g', groupTitle: '会话 g', deletedAt: 1, editedAt: 2, deletedByDeviceId: 'd', deleteReason: 'user-delete' }] }),
     })).toMatchObject({ action: 'skip', cause: 'disabled' });
   });
 
@@ -56,7 +56,7 @@ describe('decideSync 的五道闸', () => {
   it('待裁决冲突 ⇒ awaiting-user；只有 suspicious_change 状态时不拦', () => {
     const waiting = meta({
       status: 'conflict',
-      pendingConflicts: [{ groupId: 'g', deletedAt: 1, editedAt: 2, deletedByDeviceId: 'd', deleteReason: 'user-delete' }],
+      pendingConflicts: [{ groupId: 'g', groupTitle: '会话 g', deletedAt: 1, editedAt: 2, deletedByDeviceId: 'd', deleteReason: 'user-delete' }],
     });
     expect(decide({ meta: waiting })).toMatchObject({ action: 'skip', cause: 'awaiting-user' });
 

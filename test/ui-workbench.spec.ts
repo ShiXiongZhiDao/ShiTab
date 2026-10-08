@@ -807,7 +807,7 @@ describe('工作台 · 冲突面板真的挂在里面', () => {
       ...meta,
       status: 'conflict',
       pendingConflicts: [
-        { groupId: 'g1', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'other-device', deleteReason: 'user-delete' },
+        { groupId: 'g1', groupTitle: '会话 g1', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'other-device', deleteReason: 'user-delete' },
       ],
     });
 
@@ -942,7 +942,7 @@ describe('工作台顶栏的同步状态', () => {
     await setMeta({
       status: 'conflict',
       pendingConflicts: [
-        { groupId: 'g1', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'other', deleteReason: 'user-delete' },
+        { groupId: 'g1', groupTitle: '会话 g1', deletedAt: AT + 1000, editedAt: AT + 2000, deletedByDeviceId: 'other', deleteReason: 'user-delete' },
       ],
     });
     const wrapper = await mountWorkbench();

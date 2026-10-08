@@ -61,6 +61,9 @@ const TRASH_BY_REASON: Record<DeleteReason, boolean> = {
   'user-delete': true,
   consumed: true,
   undone: false,
+  // 既有约定：恢复是「换成那一版」，往里塞一批回收站行等于同时发明第二个动作，
+  // 而且会污染那一版本来的回收站。要捞回来的路径是再恢复到最新那一版。
+  reverted: false,
 };
 
 export function entersTrash(reason: DeleteReason): boolean {
@@ -122,6 +125,12 @@ export { recordReason } from '@/core/domain/trash-record';
  *
  * ⚠ 过滤**只影响回收站那一份**。会话墓碑照写、删除照常传播（既有约定 的"照样存、标不可恢复"
  * 说的是列表，不是这里）；整组都不可恢复时这里直接返回，那一行不留。
+ *
+ * ⚠ **既有约定 之后这一格不是死代码**：新收纳确实不再产生 `restorable: false` 的行（它们连会话都不进），
+ * 但这里的入参是**存储里那一组**，老会话、导入进来的老备份、对面同步过来的老载荷里都有那种行。
+ * 两道判据问的是两个问题（"这条 tab 该不该进会话" vs "这条记录还原得了吗"），
+ * 共同的原语只有一个：`core/domain/tab.isRestorableUrl` —— 这一句是逐个打开
+ * `isCapturableTab` 与 `isRecoverableRecord` 核对过的，不是"看起来同源"。
  */
 export async function mergeIntoTrash(
   deps: DeleteDeps,

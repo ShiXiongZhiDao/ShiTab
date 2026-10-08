@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalJson, checksumEquals, checksumOf, sha256Hex } from '@/core/domain/checksum';
 import { base64FromGzip, gzipToBase64 } from '@/core/domain/gzip';
+import { decodeWire, encodeWire, WIRE_COMPRESS_MIN_BYTES, WIRE_ENCODING } from '@/core/domain/sync-data';
 import { groupFixture, savedTabFixture } from './fixtures';
 
 describe('规范化 JSON 与 SHA-256', () => {
@@ -135,5 +136,84 @@ describe('gzip + base64', () => {
     const tampered = `${good.slice(0, good.length - 8)}AAAAAAAA`;
     await expect(base64FromGzip(tampered)).rejects.toThrow();
     await expect(base64FromGzip('这不是 base64 !!!')).rejects.toThrow();
+  });
+});
+
+/**
+ * ★ 线上编码。
+ *
+ * 这一层原来**不存在**：PUT 上去的一直是 `JSON.stringify(...)` 原文，而三处注释
+ * 已经把它当成"压缩后 0.2–0.4 MiB"在记账。这些用例钉的是新合同。
+ *
+ * 跑在 node 环境（文件顶部那行），因为生产这一层在 MV3 的 service worker 里执行。
+ */
+describe('远端载荷的线上编码：小载荷写原文，大载荷写 gzip+base64 信封', () => {
+  /** 有真实重复结构的载荷 —— gzip 对它有效；随机串会把比例算得过于好看。 */
+  function bigPayload(): unknown {
+    return {
+      format: 'shitab-snapshot',
+      state: {
+        groups: Array.from({ length: 400 }, (_, index) => ({
+          id: `g${index}`,
+          title: `会话 ${index} · github.com/web-dahuyou/NiceTab`,
+          tabs: Array.from({ length: 8 }, (_, tab) => ({
+            id: `t${index}-${tab}`,
+            url: `https://github.com/web-dahuyou/NiceTab/blob/main/src/sync/webdav.ts#L${tab}`,
+            title: `NiceTab/src/sync/webdav.ts at main · web-dahuyou/NiceTab`,
+          })),
+        })),
+      },
+    };
+  }
+
+  it('阈值以下**不套信封**：那点 gzip 收益抵不过 base64 的 33%', async () => {
+    const small = { format: 'shitab-manifest', latestRevision: 3 };
+    const encoded = await encodeWire(small);
+    expect(encoded).toBe(JSON.stringify(small));
+    expect(encoded).not.toContain(WIRE_ENCODING);
+  });
+
+  it('阈值以上套信封，且**确实比原文小**（这才是这一层存在的理由）', async () => {
+    const payload = bigPayload();
+    const raw = JSON.stringify(payload);
+    expect(raw.length, '夹具要真的越过阈值，否则这条用例是空转').toBeGreaterThan(WIRE_COMPRESS_MIN_BYTES);
+
+    const encoded = await encodeWire(payload);
+    expect(JSON.parse(encoded)).toHaveProperty('encoding', WIRE_ENCODING);
+    expect(encoded.length).toBeLessThan(raw.length);
+    // 20:1 是 既有约定 实测的 4.9% 那一档；这里按 8:1 留足余地，只钉"量级真的下来了"
+    expect(encoded.length / raw.length).toBeLessThan(0.125);
+  });
+
+  it('两个方向都能回来：信封与原文两种写法各来回一次', async () => {
+    const payload = bigPayload();
+    expect(await decodeWire(await encodeWire(payload))).toEqual(payload);
+
+    const small = { format: 'shitab-snapshot', revision: 1 };
+    expect(await decodeWire(await encodeWire(small))).toEqual(small);
+  });
+
+  it('手写一份**没有信封**的远端文件照样读得进来', async () => {
+    const text = '{"format":"shitab-snapshot","revision":7}';
+    expect(await decodeWire(text)).toEqual({ format: 'shitab-snapshot', revision: 7 });
+  });
+
+  it('看着像信封但 data 不是串的，**当普通载荷**返回，不去解', async () => {
+    const lookalike = { encoding: WIRE_ENCODING, data: 42 };
+    expect(await decodeWire(JSON.stringify(lookalike))).toEqual(lookalike);
+  });
+
+  /**
+   * 坏载荷必须**抛**：调用方那一侧是 `catch { continue }`（跳过这一版去找更旧的）
+   * 与 `return { ok: false, reason: 'corrupt' }`（拒绝恢复这一版）。
+   * 让它返回 undefined 或者原样吐回壳，两条判据都会读到"看起来有东西"的那一版。
+   */
+  it('坏 JSON 与坏 gzip 都抛，不静默返回壳或 undefined', async () => {
+    await expect(decodeWire('半截的 JSON {')).rejects.toThrow();
+    await expect(decodeWire(`{"encoding":"${WIRE_ENCODING}","data":"这不是 base64 !!!"}`)).rejects.toThrow();
+    const good = await gzipToBase64('{"a":1}');
+    await expect(
+      decodeWire(`{"encoding":"${WIRE_ENCODING}","data":"${good.slice(0, good.length - 8)}AAAAAAAA"}`),
+    ).rejects.toThrow();
   });
 });

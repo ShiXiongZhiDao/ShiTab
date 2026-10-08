@@ -200,4 +200,33 @@ describe('两份 locale 的键集合一模一样（只加一边 = 另一种语�
     expect([...enKeys].filter((key) => !zhKeys.has(key)), '只在 en 里出现的键').toEqual([]);
     expect([...zhKeys].filter((key) => !enKeys.has(key)), '只在 zh_CN 里出现的键').toEqual([]);
   });
+
+  /**
+   * 既有约定 从方案的文案表里**裁掉三条死键**：`sync_event_skip` /
+   * `sync_event_summary_no_changes` / `sync_event_summary_backoff`。
+   * 它们对应的是"空转出口也落盘"那套写法，而那条写法被明文否掉了
+   * （心跳 60 秒一轮会把环 100 在 ≈100 分钟里灌满）。
+   *
+   * 留一条没人写的键 = 留一个死字段：下次有人看见它，会以为日志里本该有 skip 这类行，
+   * 然后去"修"那个永远等不到的东西。所以这里钉的是"它不许存在"。
+   */
+  it('空转出口的三条死键不许进任何一份目录，而落盘那五类都在', () => {
+    for (const name of ['en', 'zh_CN'] as const) {
+      const table = load(name);
+      for (const dead of ['sync_event_skip', 'sync_event_summary_no_changes', 'sync_event_summary_backoff']) {
+        expect(table[dead], `${name} 里多了那条没人写的 ${dead}`).toBeUndefined();
+      }
+      // 正向对照：这两份目录不是空的，真的写了的出口都有文案
+      for (const alive of [
+        'sync_event_push',
+        'sync_event_pull',
+        'sync_event_conflict',
+        'sync_event_suspicious',
+        'sync_event_error',
+        'sync_logs_empty',
+      ]) {
+        expect((table[alive]?.message ?? '').trim().length, `${name} 里少了 ${alive}`).toBeGreaterThan(0);
+      }
+    }
+  });
 });

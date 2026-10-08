@@ -20,10 +20,34 @@ import type { DeleteReason, StoredConflict, TabGroup } from '@/shared/types';
  * 墓碑的 `reason` 是代码里的判别值，不能直接印到界面上
  * —— 用户看见「reason: consumed」只会以为那是个错误码。
  */
+/**
+ * 冲突那一行"哪一台"怎么念（既有约定 的默认名会撞）。
+ *
+ * 默认名是 `浏览器 · 平台`，两台 Windows + Chrome 拿到的是同一个字符串，而浏览器不给扩展
+ * 任何主机名 API ⇒ 没法用计算机名区分。修法不改名字，只在这一行永远叠一个 id 前 4 位：
+ * 默认名照样好读，用户改成「公司电脑」也变成「公司电脑（a1f3）」，
+ * 而必须分清是哪一台的这一刻永远可核对。括号的标点在各份 locale 里，不在这里写死。
+ *
+ * ⚠ 为什么写在 script 而不是直接在模板里嵌套两个 `t()`：`test/search-and-backup.spec.ts`
+ * 那条占位符守卫是**静态**把 `t(key, {…})` 的形参名归给外层那个 key 的，
+ * 嵌套写法会让它以为 `conflict_deleted_on_other` 收到了 `__name__`/`__code__`，当场红。
+ *
+ * ⚠ 不是"查到同名才显示"：profile 懒生成、只生成一次，生成那一刻还没读远端、看不见对面叫什么。
+ * 解析不出名字时那 8 位本身就是身份，不再叠一个更短的前缀（否则显示成 a1b2c3d4（a1b2））。
+ */
+function deviceLabel(conflict: StoredConflict): string {
+  if (!conflict.deletedByName) return conflict.deletedByDeviceId.slice(0, 8);
+  return t('conflict_device_with_code', {
+    name: conflict.deletedByName,
+    code: conflict.deletedByDeviceId.slice(0, 4),
+  });
+}
+
 const reasonText: Record<DeleteReason, MessageKey> = {
   'user-delete': 'conflict_reason_deleted',
   consumed: 'conflict_reason_consumed',
   undone: 'conflict_reason_undone',
+  reverted: 'conflict_reason_reverted',
 };
 
 const rows = ref<Array<{ conflict: StoredConflict; group?: TabGroup }>>([]);
@@ -85,9 +109,16 @@ async function choose(groupId: string, choice: 'keep' | 'delete'): Promise<void>
       class="mb-2 rounded-control border border-line px-3 py-2"
       data-testid="conflict-row"
     >
-      <p class="m-0 text-[12px] font-bold">{{ row.group?.title || row.conflict.groupId }}</p>
+      <!-- 标题优先读账上那一份（本机可能根本没有这条会话，见 `StoredConflict.groupTitle`），
+           最后才回退到裸 id —— 一串十六进制没法回答"哪一条是哪个会话"。 -->
+      <p class="m-0 text-[12px] font-bold" data-testid="conflict-title">{{ row.conflict.groupTitle || row.group?.title || row.conflict.groupId }}</p>
+      <!--
+        删除方那一格：有名字就显示它自己起的名字，没有才回退机器身份的前 8 位。
+        回退留在**界面**而不是引擎里编一个"另一台设备"：名字是用户起的，引擎没有权利用
+        自己的话冒充它，而一串十六进制一眼就看得出"这台我不认识"。
+      -->
       <p class="m-0 mt-0.5 text-[10px] text-muted">
-        {{ t('conflict_deleted_on_other', { device: row.conflict.deletedByDeviceId.slice(0, 8) }) }} · {{ t(reasonText[row.conflict.deleteReason]) }}
+        {{ t('conflict_deleted_on_other', { device: deviceLabel(row.conflict) }) }} · {{ t(reasonText[row.conflict.deleteReason]) }}
       </p>
       <div class="mt-2 flex gap-2">
         <!-- 禁用态与「处理中」这句是 既有约定 欠的最后一处（既有约定 补上）：

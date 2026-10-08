@@ -23,7 +23,12 @@ const props = withDefaults(
     busy?: boolean;
     /** 额外禁用（例如"没勾确认不许清理"）。 */
     disabled?: boolean;
-    tone?: 'primary' | 'ghost';
+    /**
+     * `danger` 是 2026-10-08 加的第三档：破坏性动作的那一颗要长得像它自己
+     * （`GroupRow.vue` 删会话的确认条用的是 `bg-danger`，那处是散在组件里的字面 class，
+     * 这里收进 tone，免得下一个确认条又抄一遍还抄歪）。
+     */
+    tone?: 'primary' | 'ghost' | 'danger';
     /** 尺寸档：面板主按钮与行内小按钮的字级/内边距不同，这里收三档而不是让调用方抄 class。 */
     size?: 'md' | 'sm';
     testId?: string;
@@ -38,7 +43,9 @@ const classes = computed(() => [
   props.size === 'sm' ? 'px-2.5 py-1 text-[10px]' : 'px-3.5 py-2 text-[11px]',
   props.tone === 'primary'
     ? 'bg-brand text-brand-contrast'
-    : 'border border-line bg-panel text-ink',
+    : props.tone === 'danger'
+      ? 'bg-danger text-white'
+      : 'border border-line bg-panel text-ink',
   // 禁用态一律可见：这是这个组件存在的第二理由
   'disabled:cursor-not-allowed disabled:opacity-40',
 ]);

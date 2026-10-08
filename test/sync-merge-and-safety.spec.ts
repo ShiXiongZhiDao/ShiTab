@@ -8,6 +8,106 @@ import { canonicalJson, checksumOf } from '@/core/domain/checksum';
 import { groupFixture, savedTabFixture } from './fixtures';
 import type { Category, DeleteReason, StoredState, SyncManifest, SyncSnapshot, TabGroup, Tombstone, TrashEntry } from '@/shared/types';
 
+/**
+ * ★ 合并必须有**不动点**。
+ *
+ * 真机报回来的故障（2026-10-08）：两台设备同时开着时，「同步日志」里
+ * `推送 本机的改动 版本 22→31` **9 分钟 10 个版本**，中间还跳号（另一台也在推）。
+ * 只留一台之后完全静默 —— 所以这不是本机自己改自己，是**两台在互相驱动**：
+ * A 拉 ⇒ 合并结果与远端不同形 ⇒ 标脏 ⇒ A 推 ⇒ B 拉 ⇒ B 也不同形 ⇒ B 推 ⇒ …
+ * 每一轮都往网盘落一个不可变快照。
+ *
+ * 引擎那一侧靠 `remote.stateChecksum === outgoingChecksum` 判断"这一轮没东西可推"。
+ * 一旦合并结果与远端不同形，这个判断就永远不成立 —— 而它成立与否**完全由合并决定**，
+ * 所以这一层才是该钉的地方：纯函数、不需要双存储，红在哪一条就定位到哪个字段。
+ */
+describe('合并的不动点（真机两台互相推的那条不变量）', () => {
+  function state(groups: TabGroup[], extra: Partial<StoredState> = {}): StoredState {
+    return { groups, categories: [], tombstones: [], trash: [], ...extra };
+  }
+
+  it('两边内容一致 ⇒ 合并结果的 checksum 仍等于远端那一版', async () => {
+    const one = () => groupFixture('会话一', [savedTabFixture('g1', 't1', 0)], { id: 'g1', updatedAt: 1_000 });
+    const merged = mergeStates({ local: state([one()]), remote: state([one()]) }).state;
+
+    expect(
+      await stateChecksumOf(merged),
+      '一致的两边合并完变成了一个 checksum 不同的东西 ⇒ 每台都认为自己有新东西要推 ⇒ 环',
+    ).toBe(await stateChecksumOf(state([one()])));
+  });
+
+  it('merge(merge(local,remote), remote) === merge(local,remote)（再合一次不该变）', async () => {
+    const remote = state([
+      groupFixture('会话 A', [savedTabFixture('ga', 'ta', 0)], { id: 'ga', updatedAt: 900 }),
+      groupFixture('会话 C', [savedTabFixture('gc', 'tc', 0)], { id: 'gc', updatedAt: 700 }),
+    ]);
+    const local = state([
+      groupFixture('会话 A 改过了', [savedTabFixture('ga', 'ta', 0)], { id: 'ga', updatedAt: 1_200 }),
+      groupFixture('会话 B', [savedTabFixture('gb', 'tb', 0)], { id: 'gb', updatedAt: 500 }),
+    ]);
+
+    const once = mergeStates({ local, remote }).state;
+    const twice = mergeStates({ local: once, remote }).state;
+
+    // 正向对照：第一次合并确实把两边并起来了（不是空对空）
+    expect(once.groups.map((group) => group.id).sort()).toEqual(['ga', 'gb', 'gc']);
+    expect(
+      await stateChecksumOf(twice),
+      '第二次合并又改动了东西 ⇒ 没有不动点，两台设备会永远互相驱动',
+    ).toBe(await stateChecksumOf(once));
+  });
+
+  /**
+   * `readStoredState` 那边已经堵住了"`trash` 键缺失 vs 空数组"这一对
+   * （它在 canonicalJson 下是两个 checksum）。合并这一侧**没有等价的保护**，
+   * 而两台设备只要有一侧的对象少一个键，环就成立了。
+   */
+  it('一边有 `trash: []`、一边没有这个键 ⇒ 合并结果必须落在同一个形上', async () => {
+    const g = groupFixture('会话一', [savedTabFixture('g1', 't1', 0)], { id: 'g1', updatedAt: 1_000 });
+    const withKey = state([g]);
+    const withoutKey = { groups: [g], categories: [], tombstones: [] } as StoredState;
+
+    const a = mergeStates({ local: withKey, remote: withoutKey }).state;
+    const b = mergeStates({ local: withoutKey, remote: withKey }).state;
+
+    expect(
+      await stateChecksumOf(a),
+      '同一对输入、只换左右顺序就算出两个结果 ⇒ 可交换性破了',
+    ).toBe(await stateChecksumOf(b));
+    expect(
+      trashOf(a).length,
+      '两边都没有回收站条目 ⇒ 合并完也不该凭空多出形状差异',
+    ).toBe(0);
+  });
+
+  /**
+   * 可交换性要**一直管到摘要**这一层，不然两台设备还是会互推。
+   *
+   * 这一条钉的是真机那个形状：两边内容相同、只有数组先后不同
+   * （会话与标签的 `sortOrder` 在两边都被重排成稠密序列，先后取决于谁先落盘）。
+   * A 算 `merge(自己, 对面)`、B 算 `merge(对面, 自己)`，只要这两个结果摘要不等，
+   * 引擎那句"我与远端一致"就永远不成立 ⇒ 一人一版、互相驱动着推。
+   */
+  it('同一对状态换左右 ⇒ 合并结果的 checksum 相同（可交换性管到摘要）', async () => {
+    const STAMP = 1_700_000_000_000;
+    const g = (id: string, sortOrder: number): TabGroup =>
+      groupFixture(`会话 ${id}`, [savedTabFixture(id, `${id}-t0`, 0)], { id, sortOrder, createdAt: STAMP, updatedAt: STAMP });
+    // 三档 `sortOrder` 全相等（一次收纳批量建的就是这种），先后就是唯一的区别
+    const left = state([g('b', 7), g('a', 7), g('c', 7)]);
+    const right = state([g('c', 7), g('a', 7), g('b', 7)]);
+
+    const ab = mergeStates({ local: left, remote: right }).state;
+    const ba = mergeStates({ local: right, remote: left }).state;
+
+    expect(
+      await stateChecksumOf(ab),
+      '换左右算出两个摘要 ⇒ 两台各自推一版、下一轮又各拉一次 ⇒ 就是那个 22→31',
+    ).toBe(await stateChecksumOf(ba));
+    // 正向对照：不是"两边都没并出东西"造成的相等（少了这一句，上面那条可以靠空结果蒙过去）
+    expect(ab.groups.map((group) => group.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
 const ID = '11111111-1111-4111-8111-111111111111';
 
 /**

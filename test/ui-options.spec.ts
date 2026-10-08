@@ -493,7 +493,8 @@ describe('分区之间不许横向跳', () => {
 });
 
 describe('权限说明不再说谎', () => {
-  /** 装机清单是 ['tabs','storage','alarms']，而这段文案曾经写"只申请两项"。 */
+  /** 装机清单是 ['tabs','storage','alarms','contextMenus']（0083 加 alarms、0100 加 contextMenus），
+   * 而这段文案曾经写"只申请两项"、又写过"三项"。 */
   const read = (locale: 'en' | 'zh_CN') =>
     JSON.parse(readFileSync(join(process.cwd(), 'public', '_locales', locale, 'messages.json'), 'utf8')) as Record<
       string,
@@ -506,16 +507,21 @@ describe('权限说明不再说谎', () => {
     return entry.message;
   };
 
-  it('en 与 zh_CN 都说三项，并且点名 alarms', () => {
+  it('en 与 zh_CN 都说四项，并且点名 alarms 与 contextMenus', () => {
     const en = bodyOf('en');
     const zh = bodyOf('zh_CN');
 
-    expect(en).toContain('Three permissions');
+    expect(en).toContain('Four permissions');
+    // 每次新增权限后，上一版那个数字必须从文案里**消失** —— 这才是"不说谎"的可执行形状。
+    expect(en.toLowerCase()).not.toContain('three permissions');
     expect(en.toLowerCase()).not.toContain('two permissions');
-    expect(zh).toContain('三项权限');
+    expect(zh).toContain('四项权限');
+    expect(zh).not.toContain('三项权限');
     expect(zh).not.toContain('两项权限');
     for (const body of [en, zh]) {
-      for (const permission of ['tabs', 'storage', 'alarms']) expect(body).toContain(permission);
+      for (const permission of ['tabs', 'storage', 'alarms', 'contextMenus']) {
+        expect(body).toContain(permission);
+      }
     }
   });
 
@@ -523,7 +529,7 @@ describe('权限说明不再说谎', () => {
     const manifest = readFileSync(join(process.cwd(), 'wxt.config.ts'), 'utf8');
     const declared = [...manifest.matchAll(/permissions:\s*\[([^\]]*)\]/g)][0]?.[1] ?? '';
     const names = [...declared.matchAll(/'([^']+)'/g)].map((m) => m[1] as string);
-    expect(names).toEqual(['tabs', 'storage', 'alarms']);
+    expect(names).toEqual(['tabs', 'storage', 'alarms', 'contextMenus']);
 
     const body = bodyOf('en');
     for (const name of names) expect(body, `权限说明漏了 ${name}`).toContain(name);

@@ -54,6 +54,14 @@ export interface FakeBrowserTabsPort extends BrowserTabsPort {
   dump(): Record<number, BrowserTab[]>;
   /** 测试断言用：createWindow 被呼叫的次数与参数（还原模式靠它判定） */
   createdWindows(): CreatedWindow[];
+  /**
+   * 测试断言用：每次 `remove` 收到的 tab id，按调用顺序一份数组。
+   *
+   * 为什么不是只看 `dump()`：`dump()` 说"这条 tab 还在"，而"还在"有两种来路 ——
+   * 根本没被交给 remove，和被交过去但平台拒了。既有约定 那条判据要的正是前一种
+   * （不可恢复的页面**不该被送去关**），拿剩下的列表证不了它。
+   */
+  removeCalls(): number[][];
 }
 
 export function createFakeBrowserTabsPort(
@@ -86,6 +94,7 @@ export function createFakeBrowserTabsPort(
   const draggingAttempts = new Map<number, number>();
   const incognitoDisallowed = options.incognitoDisallowed === true;
   const created: CreatedWindow[] = [];
+  const removeBatches: number[][] = [];
   let focusedWindowId = options.lastFocusedWindowId ?? windowOrder[0] ?? 1;
 
   function reindex(windowId: number) {
@@ -101,6 +110,10 @@ export function createFakeBrowserTabsPort(
 
     createdWindows() {
       return [...created];
+    },
+
+    removeCalls() {
+      return removeBatches.map((batch) => [...batch]);
     },
 
     async queryWindowTabs(windowId) {
@@ -181,6 +194,9 @@ export function createFakeBrowserTabsPort(
 
     async remove(tabIds): Promise<TabRemovalOutcome> {
       const outcome: TabRemovalOutcome = { closed: [], failed: [] };
+      // 先记下"这一次被要求关哪些"，再动仓储 —— 记的是调用方交来的那份名单，
+      // 不是成功关掉的那些。既有约定 那条判据要的正是前者。
+      removeBatches.push([...tabIds]);
       for (const id of tabIds) {
         if (unremovable.has(id)) {
           outcome.failed.push({ tabId: id, error: 'Tab cannot be closed' });

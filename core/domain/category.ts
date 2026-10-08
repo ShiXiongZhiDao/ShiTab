@@ -39,10 +39,15 @@ export function touchCategory(category: Category, at: number): Category {
   return { ...category, updatedAt: at };
 }
 
-/** 左栏顺序：sortOrder 优先，createdAt 兜底（两组意外同序时列表不该在刷新时自己跳动）。 */
+/**
+ * 左栏顺序：sortOrder 优先，createdAt 兜底（两组意外同序时列表不该在刷新时自己跳动），
+ * 最后 `id`。第三级同样是 2026-10-08 为**摘要**补的：分类的数组顺序进 `stateChecksum`
+ * ，前两级全相等时若退回落盘先后，两台机器会把同一堆内容算成两份状态。
+ */
 export function compareCategories(a: Category, b: Category): number {
   if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-  return a.createdAt - b.createdAt;
+  if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /** 新分类排到末尾。空列表时是 0。 */

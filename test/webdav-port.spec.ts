@@ -19,7 +19,14 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createWebDavPort } from '@/infrastructure/webdav/http-webdav';
+import {
+  createWebDavPort,
+  requestTimeoutMs,
+  GET_REQUEST_TIMEOUT_MS,
+  PUT_TIMEOUT_CEILING_MS,
+  PUT_TIMEOUT_FLOOR_MS,
+  SMALL_REQUEST_TIMEOUT_MS,
+} from '@/infrastructure/webdav/http-webdav';
 import { WebDavError, type WebDavErrorKind } from '@/core/ports/webdav';
 
 const BASE = 'https://dav.test/dav/shitab/';
@@ -35,7 +42,11 @@ interface CapturedRequest {
 }
 
 let captured: CapturedRequest[] = [];
-let plan: (request: CapturedRequest) => Response = () => stubResponse();
+/**
+ * 允许返回 Promise：超时那组用例需要一个"永不 resolve、只被 signal 结束"的响应，
+ * 而 `fetchImpl` 本来就是 async 的，`return plan(request)` 会自动把 Promise 接住。
+ */
+let plan: (request: CapturedRequest) => Response | Promise<Response> = () => stubResponse();
 
 /** 形状对齐 fetch 的 Response，但只实现适配器真正读的那四项。 */
 function stubResponse(init: { status?: number; headers?: Record<string, string>; body?: string } = {}): Response {
@@ -193,11 +204,29 @@ describe('没有响应 = network + status 0，与"服务器说了不"是两件�
     await expectFailure(port.ensureCollection(BASE, CREDENTIAL), 'network', 0);
   });
 
-  it('AbortSignal 原样透传给 fetch：超时/取消不归这层实现', async () => {
-    respondAlways(200);
+  /**
+   * ★ 这一条原来写的是「AbortSignal 原样透传给 fetch：超时/取消不归这层实现」，
+   * 断的是**对象同一性**。既有约定 把超时挪进了这一层，同一性因此不再成立。
+   *
+   * 但原话真正要保护的从来不是同一性，而是"调用方按取消，请求就得真的取消"。
+   * 现在断的就是那个**行为**：这层的 controller 必须接住调用方的 signal。
+   *
+   * ⚠ 别把它改回 `toBe(controller.signal)`：那等于把"这层不许自己加中止源"这个
+   * **已经被推翻的旧立场**重新钉成合同。推翻它的理由在上面那个超时 describe 里。
+   */
+  it('调用方给了 signal 就接进来：请求还在飞的时候它一 abort，这一笔就真的中止', async () => {
     const controller = new AbortController();
-    await port.put(`${BASE}snap.json`, '{}', CREDENTIAL, { signal: controller.signal });
-    expect(lastRequest().signal).toBe(controller.signal);
+    // 永不 resolve，除非 signal 被中止 —— 于是"中止有没有真的接进来"只能这样观察
+    plan = (request) =>
+      new Promise<Response>((_resolve, reject) => {
+        request.signal?.addEventListener('abort', () => reject(request.signal?.reason));
+      });
+    const running = port.put(`${BASE}snap.json`, '{}', CREDENTIAL, { signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(captured, 'fetchImpl 没被调到，这条用例就成了空转').toHaveLength(1);
+
+    controller.abort(Object.assign(new Error('用户取消了'), { name: 'AbortError' }));
+    await expectFailure(running, 'network', 0);
   });
 });
 
@@ -584,5 +613,114 @@ describe('move：Destination 编码与 Overwrite', () => {
       403,
     );
     expect(error.url).toBe(`${BASE}a.json`);
+  });
+});
+
+/**
+ * ★ 请求超时。
+ *
+ * 端口把 `signal` 一路铺到了 `put`，而生产**一个都没传**过：坚果云挂住时请求永不返回，
+ * 而跨进程认领锁（`SYNC_CLAIM_TTL_MS` = 60 秒）先过期 ⇒ 第二个 surface 在第一个还卡在
+ * 网络上时就开第二轮；MV3 的 worker 也可能在半截 PUT 时被平台杀掉。
+ *
+ * ⚠ 这一层只能用**墙上时间**。浏览器的 `fetch` 不暴露传输进度，没有"还在动"这个信号可看，
+ * 所以 既有约定 那条"按进度停滞判死"在这里不成立 —— 那条属于发布管线（走 curl/git，
+ * 有 `--progress` 与 `lowSpeedLimit`）。别照抄过来。
+ */
+describe('请求超时：挂住的连接不能永远占着一轮同步', () => {
+  it('两档 + PUT 按体量折算（夹在上下限之间）', () => {
+    expect(requestTimeoutMs('PROPFIND')).toBe(SMALL_REQUEST_TIMEOUT_MS);
+    expect(requestTimeoutMs('MKCOL')).toBe(SMALL_REQUEST_TIMEOUT_MS);
+    expect(requestTimeoutMs('MOVE')).toBe(SMALL_REQUEST_TIMEOUT_MS);
+    expect(requestTimeoutMs('DELETE')).toBe(SMALL_REQUEST_TIMEOUT_MS);
+    expect(requestTimeoutMs('HEAD')).toBe(SMALL_REQUEST_TIMEOUT_MS);
+    // GET 层里事先不知道载荷多大，而它读的可能是一份完整快照
+    expect(requestTimeoutMs('GET')).toBe(GET_REQUEST_TIMEOUT_MS);
+
+    // PUT：小载荷落到下限，不给 15 秒以下的荒谬值
+    expect(requestTimeoutMs('PUT', 'x')).toBe(PUT_TIMEOUT_FLOOR_MS);
+    expect(requestTimeoutMs('PUT', 'x'.repeat(100 * 1024))).toBe(PUT_TIMEOUT_FLOOR_MS);
+    // 1 MiB 按假设的最低可用速率折算是 64 秒，落在区间里
+    expect(requestTimeoutMs('PUT', 'x'.repeat(1024 * 1024))).toBe(64_000);
+    // 10 MiB 会折算到 640 秒 ⇒ 夹在上限，否则一轮同步能把 worker 拖死
+    expect(requestTimeoutMs('PUT', 'x'.repeat(10 * 1024 * 1024))).toBe(PUT_TIMEOUT_CEILING_MS);
+  });
+
+  /** 把墙上时间压到几十毫秒，用例才不用真的等 15 秒。 */
+  function hangingPort(ms: number): { port: ReturnType<typeof createWebDavPort>; released: () => number } {
+    let released = 0;
+    const port = createWebDavPort({
+      timeoutMs: ms,
+      fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        released += 1;
+        // 永不 resolve 的响应：只有 signal 能把它结束掉，所以这一条同时钉住"真的传了 signal"
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        });
+      }) as unknown as typeof fetch,
+    });
+    return { port, released: () => released };
+  }
+
+  it('挂住的请求在超时那刻被中止，并报成 network（不是 403、不是"服务器说不"）', async () => {
+    const { port: slow, released } = hangingPort(40);
+    const error = await expectFailure(slow.propfind(BASE, CREDENTIAL, 1), 'network', 0);
+    expect(released()).toBe(1);
+    // 日志必须分得开"慢/挂死"与"根本没连上"：后者该让用户查网络，前者该让他查服务器。
+    expect(error.message).toContain('超过 40ms 没有完成');
+  });
+
+  it('调用方自己的 signal 仍然算数：它先中止就报"被取消"，不冒充超时', async () => {
+    const controller = new AbortController();
+    const { port } = hangingPort(60_000);
+    const running = port.put(`${BASE}a.json`, 'body', CREDENTIAL, { signal: controller.signal });
+    // 让 put 真的走到 fetchImpl 那一步再取消
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort(new Error('页面关掉了'));
+    await expectFailure(running, 'network', 0);
+    const caught = await running.catch((reason: unknown) => reason as WebDavError);
+    expect((caught as WebDavError).message).not.toContain('没有完成');
+  });
+
+  /**
+   * 超时**掐的不只是响应头**。`fetch` 在响应头到达就 resolve，正文要等 `response.text()`
+   * 才读 —— 只掐头的那一版实现会在"连上了但整份快照流不完"这一档上永远等下去，
+   * 而那恰恰是 GET 最容易撞上的形状。计时器必须活到正文读完。
+   */
+  it('正文读不完也算挂住：超时不只掐响应头', async () => {
+    let seen: AbortSignal | undefined;
+    const port = createWebDavPort({
+      timeoutMs: 40,
+      fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen = init?.signal as AbortSignal;
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          text: () =>
+            new Promise<string>((_resolve, reject) => {
+              seen?.addEventListener('abort', () => reject(seen?.reason));
+            }),
+        } as unknown as Response;
+      }) as unknown as typeof fetch,
+    });
+    const error = await expectFailure(port.get(`${BASE}a.json`, CREDENTIAL), 'network', 0);
+    expect(error.message).toContain('超过 40ms 没有完成');
+  }, 10_000);
+
+  it('超时是**每个请求**一档，不是每一轮同步一档：一轮里多个请求各自计时', async () => {
+    const seen: string[] = [];
+    const port = createWebDavPort({
+      timeoutMs: 30,
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(String(input));
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        });
+      }) as unknown as typeof fetch,
+    });
+    await expectFailure(port.propfind(BASE, CREDENTIAL, 1), 'network', 0);
+    await expectFailure(port.get(`${BASE}a.json`, CREDENTIAL), 'network', 0);
+    expect(seen).toEqual([BASE, `${BASE}a.json`]);
   });
 });

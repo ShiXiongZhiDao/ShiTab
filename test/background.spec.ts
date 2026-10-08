@@ -17,7 +17,10 @@ import { CAPTURE_NOTICE_MESSAGE, COMMAND_MESSAGE } from '@/shared/messages';
 import { SYNC_PING_MESSAGE } from '@/shared/sync-heartbeat';
 import { BACKGROUND_ALARM_PERIOD_MINUTES, SYNC_ALARM_NAME } from '@/shared/constants';
 import { groupFixture, putEmptyGroup, savedTabFixture } from './fixtures';
-import { eventsPort, storagePort, tabsPort, webdavPort } from '@/shared/services';
+import { contextMenusPort, eventsPort, storagePort, tabsPort, webdavPort } from '@/shared/services';
+import { createFakeContextMenusPort } from '@/infrastructure/testing/fake-browser-menus';
+import type { FakeContextMenusPort } from '@/infrastructure/testing/fake-browser-menus';
+import type { ContextMenusPort } from '@/core/ports/context-menus';
 import { createFakeWebDav, FAKE_CREDENTIAL } from '@/infrastructure/testing/fake-webdav';
 import type { FakeWebDavPort } from '@/infrastructure/testing/fake-webdav';
 import { createFakeBrowserTabsPort, FAKE_EXTENSION_ORIGIN } from '@/infrastructure/testing/fake-browser-tabs';
@@ -33,9 +36,27 @@ const ENTRY_URL = `${FAKE_EXTENSION_ORIGIN}/app.html?entry=pinned-tab`;
 let fake: FakeBrowserTabsPort;
 /** 每条用例一份内存 WebDAV；同步节拍那组用例靠它的 `calls` 判断"到底发没发过请求"。 */
 let remote: FakeWebDavPort;
-/** background 里每个服务订阅的 handler 合集（管理器 5 个 + 活跃序列 3 个）。 */
+/** 右键菜单的登记表。真适配器会去打 fakeBrowser 没实现的 `contextMenus`。 */
+let menus: FakeContextMenusPort;
+/** background 里每个服务订阅的 handler 合集。 */
 let subscriptions: LifecycleHandlers[];
 let handlers: LifecycleHandlers;
+
+/**
+ * 多个订阅者注册**同一个**生命周期时，两个都要跑。
+ *
+ * 这里原来是 `{ ...handlers, ...next }` —— 后注册的直接把前一个吃掉。菜单注册就是撞上这条
+ * 才暴露的：它和入口页管理器都订 `onStartup`，合并之后测试里 `handlers.onStartup()` 只跑到
+ * 了后订的那个，"给每个窗口补一个 T"那组用例红得与被测代码无关。**覆盖是比红更糟的失败**：
+ * 生产里两个监听者都会收到，测试却只跑一个。
+ */
+type Chained = (...args: never[]) => void | Promise<void>;
+
+function chain(prev?: Chained, next?: Chained): Chained | undefined {
+  if (!prev) return next;
+  if (!next) return prev;
+  return (...args: never[]) => Promise.all([prev(...args), next(...args)]).then(() => undefined);
+}
 
 /**
  * 把所有订阅**合并**成一个句柄。
@@ -45,7 +66,26 @@ let handlers: LifecycleHandlers;
  */
 function recordSubscription(next: LifecycleHandlers): void {
   subscriptions.push(next);
-  handlers = { ...handlers, ...next };
+  const merged: LifecycleHandlers = {};
+  for (const key of Object.keys({ ...handlers, ...next }) as Array<keyof LifecycleHandlers>) {
+    merged[key] = chain(
+      handlers[key] as Chained | undefined,
+      next[key] as Chained | undefined,
+    ) as never;
+  }
+  handlers = merged;
+}
+
+/** 把菜单 port 也委托给假件：真适配器那三个方法在 fakeBrowser 上全是"未实现即抛"。 */
+const MENU_METHODS: Array<keyof ContextMenusPort> = ['create', 'removeAll', 'onClicked'];
+
+function delegateMenus(source: FakeContextMenusPort): void {
+  for (const key of MENU_METHODS) {
+    const method = source[key] as unknown as (...args: unknown[]) => unknown;
+    vi.spyOn(contextMenusPort, key).mockImplementation(
+      ((...args: unknown[]) => method.apply(source, args)) as never,
+    );
+  }
 }
 
 /** 把单例 port 的方法委托给假仓储（真实 background 拿到的就是这个对象）。 */
@@ -133,6 +173,8 @@ beforeEach(async () => {
   delegate(tabsPort, fake);
   remote = createFakeWebDav({ expectedCredential: FAKE_CREDENTIAL });
   delegateWebDav(remote);
+  menus = createFakeContextMenusPort();
+  delegateMenus(menus);
 
   // 记录 background 订阅了什么，好在测试里手动触发生命周期
   subscriptions = [];
@@ -208,6 +250,39 @@ describe('图标点击 = 收纳', () => {
     expect(await fakeBrowser.action.getTitle({})).toBe('ShiTab: stashed 1 tabs');
   });
 
+  it('整窗只有新标签页与内部页 ⇒ badge 报 0、不建会话、也不广播撤销通知', async () => {
+    const sent: unknown[] = [];
+    vi.spyOn(fakeBrowser.runtime, 'sendMessage').mockImplementation(((message: unknown) => {
+      sent.push(message);
+      return Promise.resolve(undefined);
+    }) as never);
+    fake = createFakeBrowserTabsPort({
+      windows: [{ id: 7, tabs: [
+        { id: 71, url: 'about:blank', active: true },
+        { id: 72, url: 'chrome://extensions' },
+      ] }],
+    });
+    delegate(tabsPort, fake);
+
+    await clickIcon({ windowId: 7, id: 71 });
+    await flush();
+
+    expect(await groupIndexSize()).toBe(0);
+    expect(await fakeBrowser.action.getBadgeText({})).toBe('0');
+    // tooltip 说的是"没有可收纳的网页"，不是"已存下 2 个标签"那句成功话
+    expect(await fakeBrowser.action.getTitle({})).toBe('This window has no stashable web pages.');
+    // 撤销条的来源是这条广播，没有它就没有撤销条
+    expect(sent).toEqual([]);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual(['about:blank', 'chrome://extensions']);
+    // 正向对照：同一个窗口里补一条普通网页，收纳立刻成立并真的广播出撤销通知
+    await fake.create({ url: 'https://a.test/1', windowId: 7, active: true });
+    await clickIcon({ windowId: 7, id: 71 });
+    await flush();
+    expect(await groupIndexSize()).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ __shitab: CAPTURE_NOTICE_MESSAGE, result: { saved: 1 } });
+  });
+
   it('平台没给 windowId 时什么都不做（不去猜某个窗口）', async () => {
     fake = createFakeBrowserTabsPort({
       windows: [{ id: 7, tabs: [{ id: 71, url: 'https://a.test/1', active: true }] }],
@@ -258,11 +333,290 @@ describe('图标点击 = 收纳', () => {
   });
 
   it('订阅发生在 background 里，且每个服务恰好一次', () => {
-    // 只剩一个服务订阅生命周期：入口页管理器。
+    // 两个订阅者：入口页管理器，和右键菜单的注册。
     // （原来还有"最近在看哪一页"的活跃序列，随"添加当前标签页"一起在真机第七轮删了，既有约定）
-    expect(subscriptions).toHaveLength(1);
+    expect(subscriptions).toHaveLength(2);
     expect(handlers.onStartup, '管理器没订阅 onStartup').toBeDefined();
     expect(handlers.onWindowCreated, '管理器没订阅 onWindowCreated').toBeDefined();
+    expect(handlers.onInstalled, '菜单没订阅 onInstalled').toBeDefined();
+  });
+
+});
+
+describe('右键菜单的六项各走到哪', () => {
+  /**
+   * 一条判据有几种进入方式，就要每种各一条用例。
+   *
+   * 范围收纳有四个入口形状：整窗（= 图标左键那条）、靠锚点的三个位置范围、跨窗口、
+   * 以及一项根本不关标签的。只测整窗的话，"锚点缺失时退化成整窗"这种最贵的错会全绿过关。
+   */
+
+  it('菜单注册先 removeAll 再建六项，且每项都挂 page 与 action 两个上下文', async () => {
+    await handlers.onInstalled?.();
+
+    expect(menus.removals, '注册前没先清空，更新一次就会堆出重复项').toBeGreaterThanOrEqual(1);
+    expect(menus.items.map((item) => item.id)).toEqual([
+      'open-workbench',
+      'stash-window',
+      'stash-except-current',
+      'stash-left',
+      'stash-right',
+      'stash-all-windows',
+    ]);
+    for (const item of menus.items) {
+      expect([...item.contexts].sort()).toEqual(['action', 'page']);
+      // `t()` 找不到键时**返回键名**（shared/i18n.ts 里那条兜底），所以"标题不以 menu_ 开头"
+      // 才是"文案真的取到了"的证据。只断言非空会放过一整类错。
+      expect(
+        item.title.startsWith('menu_'),
+        `菜单项 ${item.id} 的标题退回了键名：${item.title}`,
+      ).toBe(false);
+    }
+  });
+
+  it('切换应用内语言会重建菜单标题；没切语言时不重复重建', async () => {
+    await handlers.onInstalled?.();
+    // 测试环境里 fakeBrowser.i18n 未实现 ⇒ `readUiLanguage()` 兜底成 'en'，
+    // 而默认 locale 是 'system' ⇒ 起始标题是**英文**。所以下面切的是中文。
+    const enTitles = menus.items.map((item) => item.title);
+    expect(enTitles[0]).toBe('Open the workbench');
+    const removalsAfterFirst = menus.removals;
+
+    // 同一门语言再写一次设置 ⇒ 不该再清一遍注册（否则每次改设置都闪一次空菜单）
+    await storagePort.setSettings({ ...(await storagePort.getSettings()), theme: 'dark' });
+    await flush();
+    expect(menus.removals, '语言没变却重建了菜单').toBe(removalsAfterFirst);
+    expect(menus.items.map((item) => item.title)).toEqual(enTitles);
+
+    await storagePort.setSettings({ ...(await storagePort.getSettings()), locale: 'zh_CN' });
+    await flush();
+    expect(menus.removals).toBeGreaterThan(removalsAfterFirst);
+    expect(menus.items.map((item) => item.title)).toEqual([
+      '打开工作台',
+      '收纳此窗口的所有标签',
+      '收纳除当前标签页外的所有标签',
+      '收纳左侧的标签',
+      '收纳右侧的标签',
+      '收纳所有窗口的所有标签',
+    ]);
+  });
+  it('收纳右侧：锚点与它左边的都留着，且**不**凭空多开落脚页', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        {
+          id: 7,
+          tabs: [
+            { id: 71, url: 'https://a.test/1' },
+            { id: 72, url: 'https://a.test/2', active: true },
+            { id: 73, url: 'https://a.test/3' },
+            { id: 74, url: 'https://a.test/4' },
+          ],
+        },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('stash-right', { id: 72, windowId: 7 });
+
+    expect(await groupIndexSize()).toBe(1);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual([
+      'https://a.test/1',
+      'https://a.test/2',
+    ]);
+    // 落脚页那条判据取"集合里有没有活动页"：活动页没被收，就不该多开一个入口 T、
+    // 更不该 focus 它 —— 那是一次没人要求的跳转。（把 `closesActive` 改回无条件落脚，这条红。）
+    expect((fake.dump()[7] ?? []).some((tab) => tab.url === ENTRY_URL)).toBe(false);
+  });
+
+  it('收纳左侧：只收锚点左边的两条，锚点仍是活动页', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        {
+          id: 7,
+          tabs: [
+            { id: 71, url: 'https://a.test/1' },
+            { id: 72, url: 'https://a.test/2' },
+            { id: 73, url: 'https://a.test/3', active: true },
+          ],
+        },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('stash-left', { id: 73, windowId: 7 });
+
+    const [firstGroup] = await storagePort.listGroupIndex();
+    if (!firstGroup) throw new Error('「收纳左侧」一个会话都没建出来');
+    expect((await storagePort.getGroup(firstGroup.id))?.tabs.map((saved) => saved.url)).toEqual([
+      'https://a.test/1',
+      'https://a.test/2',
+    ]);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual(['https://a.test/3']);
+  });
+
+  it('收纳除当前标签页外：当前那页留着，其余三页全收', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        {
+          id: 7,
+          tabs: [
+            { id: 71, url: 'https://a.test/1' },
+            { id: 72, url: 'https://a.test/2', active: true },
+            { id: 73, url: 'https://a.test/3' },
+          ],
+        },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('stash-except-current', { id: 72, windowId: 7 });
+
+    expect(await groupIndexSize()).toBe(1);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual(['https://a.test/2']);
+  });
+
+  it('收纳本窗口 = 图标左键那条路径（整窗、要落脚页）', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        {
+          id: 7,
+          tabs: [
+            { id: 71, url: 'https://a.test/1', active: true },
+            { id: 72, url: 'https://a.test/2' },
+          ],
+        },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('stash-window', { id: 71, windowId: 7 });
+
+    expect(await groupIndexSize()).toBe(1);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual([ENTRY_URL]);
+  });
+
+  it('0 号位钉着的入口页在「左侧」集合里，也照样不收它（范围解析在过滤器之前）', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        {
+          id: 7,
+          tabs: [
+            { id: 70, url: ENTRY_URL, pinned: true },
+            { id: 71, url: 'https://a.test/1' },
+            { id: 72, url: 'https://a.test/2', active: true },
+          ],
+        },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('stash-left', { id: 72, windowId: 7 });
+
+    const [onlyGroup] = await storagePort.listGroupIndex();
+    if (!onlyGroup) throw new Error('入口页在左侧集合里，但 71 那条该建成会话');
+    const saved = (await storagePort.getGroup(onlyGroup.id))?.tabs ?? [];
+    expect(saved.map((tab) => tab.url)).toEqual(['https://a.test/1']);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual([ENTRY_URL, 'https://a.test/2']);
+  });
+
+  it('锚点标签已经不在了 ⇒ 一个会话都不建，也绝不退化成整窗', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        { id: 7, tabs: [{ id: 71, url: 'https://a.test/1', active: true }, { id: 72, url: 'https://a.test/2' }] },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('stash-right', { id: 999, windowId: 7 });
+
+    // 这一条走的是既有的 `no-stashable-tabs`（badge 报 0），**不是**一条新错误分支：
+    // 范围层交回空集，收纳照旧"不建空会话"。退化成整窗才是这里的 bug。
+    expect(await groupIndexSize()).toBe(0);
+    expect(fake.dump()[7]).toHaveLength(2);
+    expect(await fakeBrowser.action.getBadgeText({})).toBe('0');
+  });
+
+  it('平台没带回标签页时，靠锚点的三项宁可什么都不做', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [{ id: 7, tabs: [{ id: 71, url: 'https://a.test/1', active: true }] }],
+    });
+    delegate(tabsPort, fake);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    for (const id of ['stash-left', 'stash-right', 'stash-except-current'] as const) {
+      await menus.click(id, { windowId: 7 } as never);
+    }
+
+    expect(await groupIndexSize()).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('收纳所有窗口：一个窗口一个会话，badge 是总数，撤销通知只发发起那个窗口', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        { id: 7, tabs: [{ id: 71, url: 'https://a.test/1', active: true }, { id: 72, url: 'https://a.test/2' }] },
+        { id: 8, tabs: [{ id: 81, url: 'https://b.test/1', active: true }] },
+      ],
+    });
+    delegate(tabsPort, fake);
+    const sent: unknown[] = [];
+    vi.spyOn(fakeBrowser.runtime, 'sendMessage').mockImplementation(((message: unknown) => {
+      sent.push(message);
+      return Promise.resolve(undefined);
+    }) as never);
+
+    await menus.click('stash-all-windows', { id: 71, windowId: 7 });
+
+    // 两个窗口 ⇒ 两个会话。**不并成一个**：sourceWindowId / 落脚页 / 撤销都是按窗口成立的。
+    expect(await groupIndexSize()).toBe(2);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual([ENTRY_URL]);
+    expect((fake.dump()[8] ?? []).map((tab) => tab.url)).toEqual([ENTRY_URL]);
+    expect(await fakeBrowser.action.getBadgeText({})).toBe('3');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ windowId: 7, result: { saved: 2, closed: 2 } });
+  });
+
+  it('打开工作台：只把 T 安排好，一条标签都不关、一个会话都不建', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [{ id: 7, tabs: [{ id: 71, url: 'https://a.test/1', active: true }] }],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('open-workbench', { id: 71, windowId: 7 });
+
+    expect(await groupIndexSize()).toBe(0);
+    expect((fake.dump()[7] ?? []).map((tab) => tab.url)).toEqual([ENTRY_URL, 'https://a.test/1']);
+  });
+
+  it('已经开着工作台时再点一次，不多开一个入口页（按窗口算，不跳隔壁窗口）', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [
+        { id: 7, tabs: [{ id: 70, url: ENTRY_URL, pinned: true }, { id: 71, url: 'https://a.test/1', active: true }] },
+        { id: 8, tabs: [{ id: 81, url: 'https://b.test/1', active: true }] },
+      ],
+    });
+    delegate(tabsPort, fake);
+
+    await menus.click('open-workbench', { id: 71, windowId: 7 });
+
+    expect((fake.dump()[7] ?? []).filter((tab) => tab.url === ENTRY_URL)).toHaveLength(1);
+    // 隔壁窗口本来没有 T，也不该被这次点击动到
+    expect((fake.dump()[8] ?? []).map((tab) => tab.url)).toEqual(['https://b.test/1']);
+  });
+
+  it('收到没注册过的 id ⇒ 一句话日志，什么都不做', async () => {
+    fake = createFakeBrowserTabsPort({
+      windows: [{ id: 7, tabs: [{ id: 71, url: 'https://a.test/1', active: true }] }],
+    });
+    delegate(tabsPort, fake);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await menus.click('not-a-menu-item' as never, { id: 71, windowId: 7 });
+
+    expect(await groupIndexSize()).toBe(0);
+    expect(fake.dump()[7]).toHaveLength(1);
+    expect(warn).toHaveBeenCalled();
   });
 });
 
@@ -627,6 +981,7 @@ describe('同步的五类节拍都收敛到 requestSync', () => {
       pendingConflicts: [
         {
           groupId: 'g-conflict',
+          groupTitle: '会话 冲突对象',
           deletedAt: 1,
           editedAt: 2,
           deletedByDeviceId: 'dev-2',

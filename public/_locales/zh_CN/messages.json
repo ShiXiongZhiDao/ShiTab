@@ -219,7 +219,7 @@
     "message": "权限"
   },
   "options_permissions_body": {
-    "message": "安装时申请三项权限：tabs（读取标签页的标题与网址，不然存不下来）、storage（把标签组存在这台浏览器里）、alarms（页面全关着的时候也有一条节拍去同步）。安装时不申请任何主机权限，新增功能也不会让已安装的用户被禁用扩展。只有当你打开 WebDAV 同步、点「连接并同步」时，浏览器才会就你填写的那一个服务器地址向你请求一次权限，而且只限于那一个地址；它不会被用于读取普通网页的内容。你的标签组只保存在这台浏览器的本地存储里，没有账号，也没有我们的服务器。"
+    "message": "安装时申请四项权限：tabs（读取标签页的标题与网址，不然存不下来）、storage（把标签组存在这台浏览器里）、alarms（页面全关着的时候也有一条节拍去同步）、contextMenus（让我们把「收纳」这几项放进右键菜单）。安装时不申请任何主机权限，新增功能也不会让已安装的用户被禁用扩展。只有当你打开 WebDAV 同步、点「连接并同步」时，浏览器才会就你填写的那一个服务器地址向你请求一次权限，而且只限于那一个地址；它不会被用于读取普通网页的内容。你的标签组只保存在这台浏览器的本地存储里，没有账号，也没有我们的服务器。"
   },
   "open_options": {
     "message": "设置"
@@ -319,6 +319,24 @@
   },
   "action_in_progress": {
     "message": "师兄收纳：正在收…"
+  },
+  "menu_open_workbench": {
+    "message": "打开工作台"
+  },
+  "menu_stash_window": {
+    "message": "收纳此窗口的所有标签"
+  },
+  "menu_stash_except_current": {
+    "message": "收纳除当前标签页外的所有标签"
+  },
+  "menu_stash_left": {
+    "message": "收纳左侧的标签"
+  },
+  "menu_stash_right": {
+    "message": "收纳右侧的标签"
+  },
+  "menu_stash_all_windows": {
+    "message": "收纳所有窗口的所有标签"
   },
   "capture_failed_kept_open": {
     "message": "收纳失败，原标签未关闭。"
@@ -440,6 +458,12 @@
   "sync_action_now": {
     "message": "立即同步"
   },
+  "sync_action_push_anyway": {
+    "message": "我核对过了，照这一版上传"
+  },
+  "sync_push_anyway_hint": {
+    "message": "服务器上那一份会变成这一版。旧的版本仍留在「远端历史」里，可以从那里恢复。"
+  },
   "sync_status_label": {
     "message": "同步状态"
   },
@@ -530,6 +554,9 @@
   "conflict_deleted_on_other": {
     "message": "另一台设备：__device__"
   },
+  "conflict_device_with_code": {
+    "message": "__name__（__code__）"
+  },
   "conflict_action_keep": {
     "message": "保留这台电脑上的"
   },
@@ -551,6 +578,12 @@
   "history_total_size": {
     "message": "服务器上有 __count__ 个快照 · 共 __size__"
   },
+  "history_total_size_at_least": {
+    "message": "服务器上有 __count__ 个快照 · 至少共 __size__ —— 其中 __unknown__ 个服务器没报大小"
+  },
+  "history_row_push": {
+    "message": "推送于 __time__ · 来自 __device__"
+  },
   "history_revision": {
     "message": "第 __revision__ 版"
   },
@@ -559,9 +592,6 @@
   },
   "history_action_restore": {
     "message": "恢复到这一版"
-  },
-  "history_restored": {
-    "message": "已在本机恢复。下一次同步会把它作为一个新版本传上去 —— 服务器上的东西没有被覆盖也没有被删除。"
   },
   "history_keep_newest": {
     "message": "保留最近"
@@ -575,6 +605,27 @@
   "history_prune_done": {
     "message": "已删除 __deleted__ 个快照，保留 __kept__ 个。"
   },
+  "history_show_earlier": {
+    "message": "显示更早的 __count__ 版"
+  },
+  "history_all_shown": {
+    "message": "已全部列出这 __count__ 版"
+  },
+  "conflict_reason_reverted": {
+    "message": "被一次「恢复到旧版本」换掉"
+  },
+  "history_restore_confirm": {
+    "message": "恢复到第 __revision__ 版会把本机换成那一版：带回来 __brought__ 条、删掉现在多出的 __removed__ 条（不进回收站），对面那台设备下一轮同步也跟着变。"
+  },
+  "history_restore_asked": {
+    "message": "其中 __count__ 条是那一版之后被删掉的：恢复完会先进冲突列表问你一句。"
+  },
+  "history_restore_confirm_action": {
+    "message": "确认恢复到第 __revision__ 版"
+  },
+  "history_restored_counts": {
+    "message": "已恢复：带回来 __brought__ 条，换掉现在多出的 __removed__ 条。"
+  },
   "history_err_disabled": {
     "message": "WebDAV 同步是关着的，没有东西可读。"
   },
@@ -586,6 +637,9 @@
   },
   "history_err_no_manifest": {
     "message": "服务器上还没有师兄收纳的同步历史。先同步一次，生成第一份快照。"
+  },
+  "history_err_unreachable": {
+    "message": "现在问不到这台服务器：可能是网络断了、连接超时、密码失效，或者服务器一时不应答。这不是「你的历史没了」——历史还在原处，等能连上再看得到。"
   },
   "history_err_not_confirmed": {
     "message": "请先勾确认 —— 这一步会删你服务器上的文件。"
@@ -621,7 +675,10 @@
     "message": "没有要上传的：服务器上的内容与本机完全一致。"
   },
   "sync_notice_suspicious": {
-    "message": "检测到异常变化：本机这一版只有 __sessions__ 个标签组、__records__ 条记录，而服务器上有 __remoteSessions__ 个标签组、__remoteRecords__ 条记录。少得太多，所以这一版没有上传，服务器上那一份没有任何改动。请先看回收站再决定。"
+    "message": "检测到异常变化：本机这一版只有 __sessions__ 个标签组、__records__ 条记录，而服务器上有 __remoteSessions__ 个标签组、__remoteRecords__ 条记录。少得太多，所以这一版没有上传，服务器上那一份没有任何改动。请先看回收站核对；确认是本机有意删的，就点下面那颗「我核对过了，照这一版上传」。"
+  },
+  "sync_notice_suspicious_gone": {
+    "message": "那一版已经变了（后台又跑过一轮），请重新核对上面的数字。"
   },
   "sync_notice_conflict": {
     "message": "上面有冲突等你选择，选完之前不会上传。"
@@ -679,6 +736,78 @@
   },
   "sync_hint_enable_first": {
     "message": "请先勾上面那个开关：同步现在是关着的，下面几颗按钮点了也不会做事。"
+  },
+  "device_name_label": {
+    "message": "本机设备名称"
+  },
+  "device_name_hint": {
+    "message": "其他设备处理同步冲突时会显示这个名字"
+  },
+  "sync_logs_toggle": {
+    "message": "同步日志"
+  },
+  "sync_logs_empty": {
+    "message": "暂无同步记录"
+  },
+  "sync_event_push": {
+    "message": "推送"
+  },
+  "sync_event_pull": {
+    "message": "拉取"
+  },
+  "sync_event_conflict": {
+    "message": "冲突"
+  },
+  "sync_event_suspicious": {
+    "message": "异常变化"
+  },
+  "sync_event_error": {
+    "message": "错误"
+  },
+  "sync_event_summary_revision": {
+    "message": "版本 __n__"
+  },
+  "sync_event_summary_merged": {
+    "message": "并入 __n__"
+  },
+  "sync_event_summary_conflicts": {
+    "message": "__n__ 条冲突待裁决"
+  },
+  "sync_event_summary_suspicious": {
+    "message": "等待你确认"
+  },
+  "sync_event_err_credentials": {
+    "message": "服务器不接受这个用户名或密码"
+  },
+  "sync_event_err_forbidden": {
+    "message": "那个目录拒绝写入（只读、配额或服务器策略）"
+  },
+  "sync_event_err_not_found": {
+    "message": "找不到同步目录"
+  },
+  "sync_event_err_parent_conflict": {
+    "message": "远端目录结构对不上"
+  },
+  "sync_event_err_precondition": {
+    "message": "另一台设备先写上去了一版"
+  },
+  "sync_event_err_method": {
+    "message": "这台服务器不支持我们要的一种请求方式"
+  },
+  "sync_event_err_server": {
+    "message": "存储服务器出错"
+  },
+  "sync_event_err_network": {
+    "message": "服务器没有回应（离线、DNS、TLS 或超时）"
+  },
+  "sync_event_err_response": {
+    "message": "服务器的回包读不懂"
+  },
+  "sync_event_err_local_write": {
+    "message": "本机副本没能保存"
+  },
+  "sync_event_err_local_state": {
+    "message": "这台机器自己的数据读不出来"
   },
   "options_nav_general": {
     "message": "常规"

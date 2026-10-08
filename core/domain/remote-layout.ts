@@ -157,6 +157,56 @@ export function manifestUrl(base: URL, revision: number): URL {
   return append(manifestsDirUrl(base), [`revision-${revision}.json`]);
 }
 
+/**
+ * ★ 指针文件的固定名。
+ *
+ * 为什么要有它：原来每一轮都要 PROPFIND `manifests/` 再按文件名挑最大的那个，
+ * 而这一层不跟随分页、坚果云**单次列举只回 750 条**（官方页现查），且远端的
+ * manifest 与快照**永不自动删**⇒ 攒过 750 版之后"看得见的最高 revision"
+ * 不再是真最高，下一推就会算出一个**已被占用**的文件名。按每天 10–30 推算，
+ * 一到两个月就撞得上。
+ *
+ * Git 的对应物也不是"列目录找最新"，是 **ref**：一个固定名、可覆盖的小文件。
+ * 所以这套布局里唯一的可变文件就是它，其余照旧不可变。
+ */
+export const POINTER_FILE = 'latest.json';
+
+export function pointerUrl(base: URL): URL {
+  return append(manifestsDirUrl(base), [POINTER_FILE]);
+}
+
+/**
+ * 是不是指针文件。扫目录时用它**跳过**：指针没有 revision，混进候选里会被
+ * `revisionFromUrl` 认成 null（那是安全的），但重建路径要能明确说出"为什么不算它"。
+ */
+export function isPointerUrl(url: string): boolean {
+  return new RegExp(`/${POINTER_FILE}$`, 'i').test(url);
+}
+
+/**
+ * 单次 PROPFIND 能信任的上限。
+ *
+ * 坚果云官方页写的是"单次列举最多 750 个条目"。拿满 750 条**不能**当成"目录里就这些" ——
+ * 后面还可能有一页，而我们看不见。这时候必须报错，不许从半份清单里挑一个"最大的"当最新：
+ * 那会算出一个已被占用的 revision 文件名，把别人那一版的指针盖掉。
+ * 正常路径读指针文件（一个 GET），只有远端从来没有指针、或指针坏了时才会走到这里。
+ */
+export const TRUSTED_LISTING_LIMIT = 750;
+
+/**
+ * 一次 PROPFIND 拿回来的清单能不能信。
+ *
+ * 拿满 `TRUSTED_LISTING_LIMIT` 条**不能**当成"目录里就这些"：坚果云单次列举只回这么多，
+ * 后面还可能有一页而我们看不见。从半份清单里挑一个"最大的"当最新，会算出一个**已被占用**
+ * 的 revision 文件名，把别人那一版的指针盖掉 —— 那是静默丢数据，不是同步慢。
+ *
+ * 唯一的一份，同步引擎与历史面板都读它：两边对"最新是哪一版"的理解不许分叉。
+ * 正常路径读指针文件（一个 GET），只有远端还没有指针、或指针坏了时才会走到这条判据。
+ */
+export function listingIsTrusted(list: readonly unknown[]): boolean {
+  return list.length < TRUSTED_LISTING_LIMIT;
+}
+
 /** 从 manifest 文件名里读 revision。认不出来的返回 null —— 目录里可能有用户自己的文件。 */
 export function revisionFromUrl(url: string): number | null {
   const matched = /revision-(\d+)\.json$/i.exec(url);

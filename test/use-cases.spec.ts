@@ -13,7 +13,7 @@ import {
   togglePin,
 } from '@/core/application/group-commands';
 import { createFakeBrowserTabsPort, FAKE_EXTENSION_ORIGIN } from '@/infrastructure/testing/fake-browser-tabs';
-import { putEmptyGroup } from './fixtures';
+import { putEmptyGroup, savedTabFixture } from './fixtures';
 import type { FakeBrowserTabsPort } from '@/infrastructure/testing/fake-browser-tabs';
 import { createStoragePort } from '@/infrastructure/storage/wxt-storage';
 import type { EntryTabPort } from '@/core/ports/entry-tab';
@@ -242,17 +242,78 @@ describe('captureWindow（V1.1 设计包 §3.1 / §6 / §21）', () => {
     expect(group.tabs.find((tab) => tab.url === 'https://a.test/1')?.closeState).toBe('failed');
   });
 
-  it('不可恢复的内部页照样保存，并计入 nonRestorableSaved', async () => {
+  it('不能直接恢复的页面**不进会话、也不被送去关**，它留在窗口里（既有约定 反转 既有约定）', async () => {
     const deps = ports({ windows: [{ id: 1, tabs: [
       { id: 11, url: 'https://a.test/1', active: true },
-      { id: 12, url: 'chrome://extensions' },
+      { id: 12, url: 'chrome://extensions', title: '扩展' },
+      { id: 13, url: 'https://a.test/2' },
+      { id: 14, url: 'edge://settings' },
+      { id: 15, url: 'about:blank' },
+      { id: 16, url: `${FAKE_EXTENSION_ORIGIN}/options.html`, title: '师兄收纳 · 设置' },
     ] }] });
     const outcome = await captureWindow(deps, { windowId: 1, at: AT });
-    if (!outcome.ok) throw new Error('不该失败');
+    if (!outcome.ok) throw new Error('收纳不该失败');
 
-    expect(outcome.result.nonRestorableSaved).toBe(1);
-    const group = await groupOf(deps.storage, outcome.result.groupId);
-    expect(group.tabs.find((tab) => tab.url === 'chrome://extensions')?.restorable).toBe(false);
+    // 会话里只剩两条能开出来的网页，`restorable` 一律为 true
+    expect(outcome.result.savedTabs.map((tab) => tab.url)).toEqual(['https://a.test/1', 'https://a.test/2']);
+    expect(outcome.result.savedTabs.every((tab) => tab.restorable)).toBe(true);
+    // 正向对照：同一窗口里普通网页确实被收了也确被关了 —— 上面那句"没有"不是整条收纳失灵
+    expect(outcome.result).toMatchObject({ saved: 2, closed: 2, kept: 0, failed: 0 });
+    // ★ 关键的一条：**不在会话里 ≠ 没被关掉**。断的是送去关的那份名单。
+    expect(deps.tabs.removeCalls()).toEqual([[11, 13]]);
+    // 四条不可恢复的页面原封不动留在窗口里（顺序 = 原来标签栏里的顺序）
+    expect((deps.tabs.dump()[1] ?? []).map((tab) => tab.url)).toEqual([
+      'chrome://extensions',
+      'edge://settings',
+      'about:blank',
+      `${FAKE_EXTENSION_ORIGIN}/options.html`,
+    ]);
+    // 这一格现在结构上恒为 0（`shared/types.ts` 记着为什么还留着它）
+    expect(outcome.result.nonRestorableSaved).toBe(0);
+  });
+
+  it('整窗只有新标签页与内部页 ⇒ 走既有的 no-stashable-tabs：不建会话、不安排落脚页、一次都不关', async () => {
+    const deps = ports({ windows: [{ id: 1, tabs: [
+      { id: 11, url: 'about:blank', active: true },
+      { id: 12, url: 'chrome://newtab' },
+    ] }] });
+    const outcome = await captureWindow(deps, { windowId: 1, at: AT });
+
+    expect(outcome).toEqual({ ok: false, reason: 'no-stashable-tabs', pinnedSkipped: 0 });
+    expect(await deps.storage.listGroupIndex()).toEqual([]);
+    expect(deps.entry.calls).toEqual([]);
+    expect(deps.tabs.removeCalls()).toEqual([]);
+    expect((deps.tabs.dump()[1] ?? []).map((tab) => tab.url)).toEqual(['about:blank', 'chrome://newtab']);
+
+    // 正向对照：换个窗口、加一条普通网页，同一套调用立刻成立（证明上面四条不是假件没接上）
+    const mixed = ports({ windows: [{ id: 2, tabs: [
+      { id: 21, url: 'about:blank' },
+      { id: 22, url: 'https://a.test/1', active: true },
+    ] }] });
+    const second = await captureWindow(mixed, { windowId: 2, at: AT });
+    if (!second.ok) throw new Error('加一条普通网页就该能收纳');
+    expect(second.result.savedTabs.map((tab) => tab.url)).toEqual(['https://a.test/1']);
+    expect(mixed.tabs.removeCalls()).toEqual([[22]]);
+    expect((mixed.tabs.dump()[2] ?? []).map((tab) => tab.url)).toEqual(['about:blank']);
+  });
+
+  it('originalIndex 因此有洞：撤销照旧按原窗口的相对顺序重开，且不重开留下的那一页', async () => {
+    const deps = ports({ windows: [{ id: 1, tabs: [
+      { id: 11, url: 'https://a.test/1' },
+      { id: 12, url: 'chrome://settings', active: true },
+      { id: 13, url: 'https://a.test/2' },
+    ] }] });
+    const outcome = await captureWindow(deps, { windowId: 1, at: AT });
+    if (!outcome.ok) throw new Error('收纳不该失败');
+    // 洞：中间那位（设置页）留在原地，所以进来的两条是 0 号与 2 号
+    expect(outcome.result.savedTabs.map((tab) => tab.originalIndex)).toEqual([0, 2]);
+
+    const result = await undoCapture(deps, { groupId: outcome.result.groupId, windowId: 1 });
+    expect(result).toMatchObject({ restored: 2, skipped: 0, failed: 0 });
+    const urls = (deps.tabs.dump()[1] ?? []).map((tab) => tab.url);
+    // 留下的那一页只有一份（撤销把它重开就是重复页），两条网页按原来的左右次序回到它右边
+    expect(urls.filter((url) => url === 'chrome://settings')).toHaveLength(1);
+    expect(urls).toEqual(['chrome://settings', 'https://a.test/1', 'https://a.test/2']);
   });
 
   it('窗口里只有固定页时返回 no-stashable-tabs，不建空组也不安排落脚页', async () => {
@@ -400,25 +461,30 @@ describe('restoreGroup', () => {
     expect(result).toMatchObject({ restored: 1, skipped: 1 });
   });
 
-  it('不可恢复的条目算 skipped，不算 failed', async () => {
+  it('老会话里不可恢复的条目算 skipped，不算 failed（既有约定 的读侧 —— 既有约定 之后只有老数据会走到这里）', async () => {
     const deps = ports({
       windows: [
-        { id: 1, tabs: [
-          { id: 11, url: 'https://a.test/1', active: true },
-          { id: 12, url: 'chrome://extensions' },
-        ] },
+        { id: 1, tabs: [{ id: 11, url: 'https://a.test/1', active: true }] },
         { id: 2, tabs: [] },
       ],
     });
-    const capturedResult = await captureWindow(deps, { windowId: 1, at: AT });
-    if (!capturedResult.ok) throw new Error('收纳不该失败');
-
-    const result = await restoreGroup(deps, {
-      groupId: capturedResult.result.groupId,
-      windowId: 2,
+    /**
+     * 新收纳**造不出**这种行了（`isCapturableTab` 把不可恢复的挡在会话之外，既有约定），
+     * 所以这里直接摆一份老会话 —— 它代表的正是本轮必须继续容忍的那批数据：
+     * 老本机存储、老备份、对面同步过来的老载荷里都躺着 `restorable: false` 的行。
+     */
+    const group = await putEmptyGroup(deps.storage, {
+      title: '老会话',
+      tabs: [
+        { ...savedTabFixture('old', 'old-t0', 0), url: 'https://a.test/1', restorable: true },
+        { ...savedTabFixture('old', 'old-t1', 1), url: 'chrome://extensions', title: '扩展', restorable: false },
+      ],
     });
+
+    const result = await restoreGroup(deps, { groupId: group.id, windowId: 2 });
     expect(result).toMatchObject({ restored: 1, skipped: 1, failed: 0 });
     expect(result.skippedUrls).toEqual(['chrome://extensions']);
+    // 正向对照：同一组里那条能开出来的**真的**被开出来了，所以上面那句 skipped 不是整组没跑
     expect(deps.tabs.dump()[2]?.map((tab) => tab.url)).toEqual(['https://a.test/1']);
   });
 
@@ -550,15 +616,27 @@ describe('restoreGroup', () => {
     expect(await deps.storage.getGroup(groupId)).toBeDefined();
   });
 
-  it('restoreTab 对不可恢复的记录直接拒绝，不调 create', async () => {
-    const deps = ports({ windows: [{ id: 1, tabs: [{ id: 11, url: 'chrome://settings', active: true }] }] });
-    const outcome = await captureWindow(deps, { windowId: 1, at: AT });
-    if (!outcome.ok) throw new Error('收纳不该失败');
-    const tabId = (await groupOf(deps.storage, outcome.result.groupId)).tabs[0]?.id;
+  it('restoreTab 对老会话里不可恢复的记录直接拒绝，同一组里那条能开出来的照常开出来', async () => {
+    const deps = ports({ windows: [{ id: 1, tabs: [{ id: 11, url: 'https://a.test/1', active: true }] }] });
+    // 与新收纳无关的一份老会话（既有约定 之后新收纳不会再有这种行，读侧必须继续认它）
+    const group = await putEmptyGroup(deps.storage, {
+      title: '老会话',
+      tabs: [
+        { ...savedTabFixture('old', 'old-t0', 0), url: 'chrome://settings', title: '设置', restorable: false },
+        { ...savedTabFixture('old', 'old-t1', 1), url: 'https://a.test/2', restorable: true },
+      ],
+    });
 
-    const result = await restoreTab(deps, { groupId: outcome.result.groupId, tabId: tabId ?? '', windowId: 1 });
-    expect(result.ok).toBe(false);
-    expect(result.reason).toBe('not-restorable');
+    const rejected = await restoreTab(deps, { groupId: group.id, tabId: 'old-t0', windowId: 1 });
+    expect(rejected.ok).toBe(false);
+    expect(rejected.reason).toBe('not-restorable');
+    // 正向对照：同一条命令、同一个组、换一条能开出来的记录 ⇒ 真的开出来了
+    const opened = await restoreTab(deps, { groupId: group.id, tabId: 'old-t1', windowId: 1 });
+    expect(opened.ok).toBe(true);
+
+    const urls = (deps.tabs.dump()[1] ?? []).map((tab) => tab.url);
+    expect(urls).toContain('https://a.test/2');
+    expect(urls.filter((url) => url === 'chrome://settings')).toHaveLength(0);
   });
 });
 

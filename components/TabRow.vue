@@ -132,7 +132,10 @@ function onActivate(event: MouseEvent): void {
       </span>
     </component>
 
-    <!-- 不可恢复时给原因而不是给一个点下去没反应的按钮 -->
+    <!-- 不可恢复时给原因而不是给一个点下去没反应的按钮。
+         ⚠ 既有约定 之后**新收纳不会再有这种行**（不可恢复的页面根本不进会话），这一格因此只服务
+         老会话 / 老备份 / 老同步载荷 —— 不要把它当死代码删掉，删了等于把老数据读成"能恢复"。
+         用例见 test/ui-components.spec.ts 的「不可恢复的记录给原因」那两条，它们钉的就是这件事。 -->
     <span
       v-if="!tab.restorable"
       class="shrink-0 rounded-full bg-warn-soft px-1.5 py-0.5 text-[9px] font-bold text-warn"

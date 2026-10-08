@@ -7,11 +7,14 @@
 
 import type {
   Category,
+  DeviceProfile,
   GroupIndexEntry,
   Settings,
   SlotName,
   SlotValue,
   StorageMeta,
+  SyncEventInput,
+  SyncEventRecord,
   SyncMeta,
   TabGroup,
   Tombstone,
@@ -136,12 +139,30 @@ export interface StoragePort {
   watchTrash(listener: (entries: TrashEntry[]) => void): () => void;
 
   /**
-   * 本机设备身份（一个随机 UUID）。第一次调用时生成并落盘。
+   * 本机设备身份。**现在是 `getDeviceProfile().id` 的一层门面**。
    *
    * 它是**墓碑的署名**：`deletedByDeviceId` 与冲突 UI 上"哪台设备改的"都读它。
    * 不进同步载荷、不进备份（把身份同步过去等于让两台机器共用一个署名，那不如没有）。
+   *
+   * 为什么还留着这颗而不是把所有调用点改成读档案：它有 4 个调用点、语义就是"给我一个 id"，
+   * 换成 `getDeviceProfile()` 会让每一处都多带一次没人用的 name 读取。
    */
   getDeviceId(): Promise<string>;
+
+  /**
+   * 本机设备档案。不存在则**懒生成**：新 id + 默认名 + 当场检测浏览器/平台，
+   * 一次落盘。两次调用拿到的是同一个 id（身份不能每个 surface 各一个，
+   * 否则一台机器在同步里会显示成三台设备）。
+   */
+  getDeviceProfile(): Promise<DeviceProfile>;
+
+  /**
+   * 改名：规范化（trim / 空名回退默认 / 40 字截断）后落盘，返回新档案。
+   *
+   * ⚠ 改名**不标脏、不触发同步**：设备名不进 `state`、不参与 checksum，
+   * 它随下一次**任何原因**产生的推送自然带出（代价：对面要等下一次推送才看到新名字，接受）。
+   */
+  setDeviceName(name: string): Promise<DeviceProfile>;
 
   // -------------------------------------------------------------------------
   // 同步配置与账本
@@ -164,4 +185,25 @@ export interface StoragePort {
   getSyncMeta(): Promise<SyncMeta>;
   setSyncMeta(meta: SyncMeta): Promise<void>;
   watchSyncMeta(listener: (meta: SyncMeta) => void): () => void;
+
+  // -------------------------------------------------------------------------
+  // 同步事件日志
+  //
+  // 这一条线**只为回答"这台机器上发生过什么同步"**而存在。它不是判据的一部分：
+  // 引擎不许读它，`runSync` 的任何一个分支都不问它。写它也因此必须永不影响主流程
+  // （见 `appendSyncEvent` 那条），否则一次 `storage.local` 写失败就会把同步弄成失败 ——
+  // 而日志的价值恰恰是在同步出问题的时候还在。
+  // -------------------------------------------------------------------------
+
+  /** 同步事件，按 `at` **升序**（最旧的在前）。UI 展示时反转，最新在上。 */
+  listSyncEvents(): Promise<SyncEventRecord[]>;
+
+  /**
+   * 追加一条事件：`id` 与 `at` 由实现内部生成（`at` 缺省取当前时刻，传值是为了让一轮
+   * 同步里的账本与日志用同一个时刻），并做环形裁剪（只留最近 `SYNC_EVENT_LIMIT` 条）。
+   *
+   * ⚠ 实现**必须 catch 自身错误、永不因写日志失败而把调用方带倒**：存储坏了的时候
+   * 返回一条内存记录即可，同步该成的照样成。
+   */
+  appendSyncEvent(input: SyncEventInput, at?: number): Promise<SyncEventRecord>;
 }
