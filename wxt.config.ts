@@ -11,6 +11,16 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
 
+  // ★ **关掉 sources 包**。WXT 对 `firefox` 与 `opera` 默认 `zipSources: true`
+  // （`node_modules/wxt/dist/core/zip.mjs:43`、`resolve-config.mjs:200`），它会顺手把
+  // **整个项目根目录**再打一份 `…-sources.zip`（`sourcesRoot = root`）。本机实测那份 2.49 MB /
+  // 253 个条目里装着内部决策账本、清单文件本身、构建脚本与那份短语清单 —— 挂到任何对外的页面上，
+  // 等于把净化那条线反着做一遍。
+  // 选"关掉"而不是"逐条排除"：排除清单漏一条就是整目录出门，而发布要的从来不是它。
+  zip: {
+    zipSources: false,
+  },
+
   // 既有约定：三端统一 MV3。不依赖任何默认值（WXT 对 firefox 的默认是 MV2）。
   manifestVersion: 3,
 

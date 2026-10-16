@@ -11,7 +11,7 @@ import {
   snapshotsDirUrl,
   toOriginPattern,
 } from '@/core/domain/remote-layout';
-import { REMOTE_OWNER_FOLDER, REMOTE_ROOT_FOLDER } from '@/shared/constants';
+import { REMOTE_ROOT_FOLDER } from '@/shared/constants';
 
 describe('WebDAV 地址校验', () => {
   it('空、纯空格、以及"少了 scheme"的串都被拒', () => {
@@ -47,8 +47,8 @@ describe('WebDAV 地址校验', () => {
 });
 
 describe('远端路径拼接（静默 404 的高发地）', () => {
-  /** 挂在用户地址后面的两段：归属目录 + 应用目录。 */
-  const TAIL = `${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}`;
+  /** 挂在用户地址后面的一段：应用目录（`ShiTab`，既有约定 去掉了归属层）。 */
+  const TAIL = REMOTE_ROOT_FOLDER;
 
   const cases: Array<{ label: string; base: string; expectPath: string }> = [
     { label: '无结尾斜杠', base: 'https://h/dav', expectPath: `/dav/${TAIL}/snapshots` },
@@ -94,9 +94,9 @@ describe('远端路径拼接（静默 404 的高发地）', () => {
   });
 });
 
-describe('地址里已经写了的目录，不许再拼一遍（双拼 = 一个全新的空库）', () => {
-  /** 真实主机上最常见的那条形状：地址只写到归属目录那一层。 */
-  const owner = `https://dav.jianguoyun.com/dav/${REMOTE_OWNER_FOLDER}`;
+describe('地址里已经写了的那一段目录，不许再拼一遍（双拼 = 一个全新的空库）', () => {
+  /** 真实主机上最常见的那条形状：地址一路写到应用目录（`ShiTab`）。 */
+  const full = `https://dav.jianguoyun.com/dav/${REMOTE_ROOT_FOLDER}`;
 
   function pathOf(base: string): string {
     const parsed = parseBaseUrl(base);
@@ -104,43 +104,30 @@ describe('地址里已经写了的目录，不许再拼一遍（双拼 = 一个�
     return snapshotsDirUrl(parsed.url).pathname;
   }
 
-  it('地址到 /dav 为止 ⇒ 拼上归属目录与应用目录', () => {
-    expect(pathOf('https://dav.jianguoyun.com/dav')).toBe(
-      `/dav/${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}/snapshots`,
-    );
+  it('地址到 /dav 为止 ⇒ 补上应用目录（与下面那条"不许多拼"是同一判据的两侧）', () => {
+    expect(pathOf('https://dav.jianguoyun.com/dav')).toBe(`/dav/${REMOTE_ROOT_FOLDER}/snapshots`);
   });
 
-  it('地址已经带了归属目录 ⇒ 只补应用目录，绝不出现 ShiXiongZhiDao/ShiXiongZhiDao', () => {
-    expect(pathOf(owner)).toBe(`/dav/${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}/snapshots`);
+  it('地址已经带了应用目录 ⇒ 一个字都不再补，绝不出现 ShiTab/ShiTab', () => {
+    expect(pathOf(full)).toBe(`/dav/${REMOTE_ROOT_FOLDER}/snapshots`);
     // 反向对照：双拼那份是真会打出去的路径，它必须**不等于**上面那条。
-    expect(owner.includes(`${REMOTE_OWNER_FOLDER}/${REMOTE_OWNER_FOLDER}`)).toBe(false);
-    expect(pathOf(owner)).not.toContain(`${REMOTE_OWNER_FOLDER}/${REMOTE_OWNER_FOLDER}`);
+    expect(pathOf(full)).not.toContain(`${REMOTE_ROOT_FOLDER}/${REMOTE_ROOT_FOLDER}`);
   });
 
-  it('归属目录写在地址里但带尾斜杠 ⇒ 同一条路径', () => {
-    expect(pathOf(`${owner}/`)).toBe(pathOf(owner));
-    expect(pathOf(`${owner}///`)).toBe(pathOf(owner));
-  });
-
-  it('地址一路写到应用目录 ⇒ 一个字都不再补', () => {
-    const full = `${owner}/${REMOTE_ROOT_FOLDER}`;
-    expect(pathOf(full)).toBe(`/dav/${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}/snapshots`);
+  it('已经写了但带尾斜杠 ⇒ 同一条路径', () => {
     expect(pathOf(`${full}/`)).toBe(pathOf(full));
+    expect(pathOf(`${full}///`)).toBe(pathOf(full));
   });
 
   it('大小写不同的那段不算同一条路径（WebDAV 多数主机区分大小写，折叠会让我们读写两个库）', () => {
-    expect(pathOf('https://h/dav/shixiongzhidao')).toBe(
-      `/dav/shixiongzhidao/${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}/snapshots`,
-    );
+    expect(pathOf('https://h/dav/shitab')).toBe(`/dav/shitab/${REMOTE_ROOT_FOLDER}/snapshots`);
   });
 
   it('remoteRootUrl 与 manifests 走的是同一套判据（三处各拼一次迟早会拼出两个库）', () => {
-    const parsed = parseBaseUrl(owner);
+    const parsed = parseBaseUrl(full);
     if (!parsed.ok) throw new Error('setup');
-    expect(remoteRootUrl(parsed.url).pathname).toBe(`/dav/${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}/`);
-    expect(manifestsDirUrl(parsed.url).pathname).toBe(
-      `/dav/${REMOTE_OWNER_FOLDER}/${REMOTE_ROOT_FOLDER}/manifests`,
-    );
+    expect(remoteRootUrl(parsed.url).pathname).toBe(`/dav/${REMOTE_ROOT_FOLDER}/`);
+    expect(manifestsDirUrl(parsed.url).pathname).toBe(`/dav/${REMOTE_ROOT_FOLDER}/manifests`);
   });
 });
 

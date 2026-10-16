@@ -17,7 +17,6 @@
 
 import {
   REMOTE_MANIFESTS_FOLDER,
-  REMOTE_OWNER_FOLDER,
   REMOTE_ROOT_FOLDER,
   REMOTE_SNAPSHOTS_FOLDER,
 } from '@/shared/constants';
@@ -89,29 +88,30 @@ function append(base: URL, segments: string[]): URL {
 }
 
 /**
- * 挂在用户地址后面的那几段目录：**归属目录 + 应用目录**（`ShiXiongZhiDao/ShiTab`），
- * 但**已经在地址里出现过的就别再拼一遍**。
+ * 挂在用户地址后面的那一段目录：**应用目录** `ShiTab`，
+ * 但**已经在地址里出现过就别再拼一遍**。
  *
- * 这条"幂等"不是洁癖，是一条数据保护：用户把地址填到归属目录那一层（`https://…/dav/ShiXiongZhiDao`）时，
- * 无条件拼就得到 `/dav/ShiXiongZhiDao/ShiXiongZhiDao/ShiTab/` —— 那是**一个全新的空库**，
+ * 这条"幂等"不是洁癖，是一条数据保护：用户把地址一路写到应用目录那一层
+ * （`https://…/dav/ShiTab`）时，无条件拼就得到 `/dav/ShiTab/ShiTab/` —— 那是**一个全新的空库**，
  * 而真正那份还在原地。用户看到的现象是"远端历史突然空了、同步又从零开始攒 revision"，
- * 旧数据没丢但再也认不出来。（这个双拼路径在真实主机上打到过，回的就是 404。）
+ * 旧数据没丢但再也认不出来。（双拼那一类路径在真实主机上打到过，回的就是 404。）
  *
- * 三条判据按**路径最后一段**精确匹配，刻意不做大小写折叠：WebDAV 的路径多数是大小写敏感的，
- * 把 `/dav/shixiongzhidao` 当成 `/dav/ShiXiongZhiDao` 会让我们在区分大小写的主机上
+ * ★ 这里原来拼的是**两段**（归属目录 `ShiXiongZhiDao` + 应用目录），既有约定 去掉了归属层：
+ * 那一段是开发者自己的网盘目录名，而它会随扩展产物出门。判据按**最后一段**精确匹配这一条没变。
+ *
+ * 三条判据按路径最后一段**精确**匹配，刻意不做大小写折叠：WebDAV 的路径多数是大小写敏感的，
+ * 把 `/dav/shitab` 当成 `/dav/ShiTab` 会让我们在区分大小写的主机上
  * 读一个、写另一个 —— 那是"两份历史各自长"的静默故障，比双拼更难查。
  */
 export function rootSegments(base: URL): string[] {
   const parts = base.pathname.split('/').filter(Boolean);
   const tail = parts[parts.length - 1];
-  if (tail === undefined) return [REMOTE_OWNER_FOLDER, REMOTE_ROOT_FOLDER];
   if (tail === REMOTE_ROOT_FOLDER) return [];
-  if (tail === REMOTE_OWNER_FOLDER) return [REMOTE_ROOT_FOLDER];
-  return [REMOTE_OWNER_FOLDER, REMOTE_ROOT_FOLDER];
+  return [REMOTE_ROOT_FOLDER];
 }
 
 /**
- * 根目录：`<baseUrl>/ShiXiongZhiDao/ShiTab/`（地址里已写过的那一段不会重复拼）。
+ * 根目录：`<baseUrl>/ShiTab/`（地址里已经写过的那一段不会重复拼）。
  *
  * 只有这一条带尾斜杠，`snapshotsDirUrl` / `manifestsDirUrl` 不带 —— 不是手滑：
  * 根这条 URL 的用途是**给人看落点**（同步面板那一行），目录的规范写法就该带斜杠，

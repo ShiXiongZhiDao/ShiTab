@@ -26,7 +26,13 @@ import { groupFixture, remoteSnapshot, savedTabFixture } from './fixtures';
 import { POINTER_FILE } from '@/core/domain/remote-layout';
 
 const BASE = 'https://dav.example.com/dav';
-const LAND = `${BASE}/ShiXiongZhiDao/ShiTab/`;
+/**
+ * 屏幕上那条落点应当长这样。**手写字面值而不是调拼接函数**：这一组用例钉的就是
+ * "用户看到的这一行到底是什么"，用 `remoteRootUrl()` 算出来就等于什么都没钉
+ * （既有约定 去掉归属层那一下，这一行跟着改过一次 —— 手写的代价就是它得跟着布局变，
+ *  而它的收益是布局写错时这里会红）。
+ */
+const LAND = `${BASE}/ShiTab/`;
 
 /**
  * `fakeBrowser.permissions.request` 是"未实现即抛"（实测：`not implemented: mock the function yourself`），
@@ -780,33 +786,34 @@ describe('落点显示：地址怎么填都指向同一条路径', () => {
     return wrapper;
   }
 
-  it('地址只写到 /dav ⇒ 补上归属目录与应用目录', async () => {
+  it('地址只写到 /dav ⇒ 补上应用目录（既有约定 之后落点只有一段：ShiTab）', async () => {
     const wrapper = await mountFormWith(BASE);
     const line = wrapper.find('[data-testid="sync-remote-path"]');
     expect(line.exists()).toBe(true);
     expect(line.text()).toBe(`Data will be stored at：${LAND}`);
   });
 
-  it('地址已经带了 ShiXiongZhiDao ⇒ 还是同一条路径，屏幕上不许出现双拼', async () => {
-    const wrapper = await mountFormWith(`${BASE}/ShiXiongZhiDao`);
+  it('地址已经带了 ShiTab ⇒ 还是同一条路径，屏幕上不许出现 ShiTab/ShiTab', async () => {
+    const wrapper = await mountFormWith(`${BASE}/ShiTab`);
     expect(wrapper.find('[data-testid="sync-remote-path"]').text()).toContain(LAND);
-    expect(wrapper.text()).not.toContain('ShiXiongZhiDao/ShiXiongZhiDao');
+    expect(wrapper.text()).not.toContain('ShiTab/ShiTab');
   });
 
-  it('地址一路写到 ShiTab ⇒ 一个字都不再补', async () => {
-    const wrapper = await mountFormWith(`${BASE}/ShiXiongZhiDao/ShiTab`);
+  it('带了尾斜杠也算写过 ⇒ 同一条落点，不许多出一层', async () => {
+    const wrapper = await mountFormWith(`${BASE}/ShiTab/`);
     expect(wrapper.find('[data-testid="sync-remote-path"]').text()).toContain(LAND);
+    expect(wrapper.text()).not.toContain('ShiTab/ShiTab');
   });
 
-  it('改输入框就跟着重算（这行的价值在"边打边看"，不是挂载时定死）', async () => {
+  it('换一台主机时那行跟着重算（这行的价值在"边打边看"，不是挂载时定死）', async () => {
     const wrapper = await mountFormWith('https://other.host/remote.php/dav/files/me');
     expect(wrapper.find('[data-testid="sync-remote-path"]').text()).toContain(
-      'https://other.host/remote.php/dav/files/me/ShiXiongZhiDao/ShiTab/',
+      'https://other.host/remote.php/dav/files/me/ShiTab/',
     );
     await wrapper.find('input[type="url"]').setValue('https://other.host/nextcloud');
     await flush();
     expect(wrapper.find('[data-testid="sync-remote-path"]').text()).toContain(
-      'https://other.host/nextcloud/ShiXiongZhiDao/ShiTab/',
+      'https://other.host/nextcloud/ShiTab/',
     );
   });
 

@@ -24,6 +24,12 @@ import { WebDavError, type WebDavCredential } from '@/core/ports/webdav';
 import { childrenByLocal, descendantsByLocal, parseXmlRoot, textOf } from '@/infrastructure/webdav/xml';
 
 const CREDENTIAL: WebDavCredential = { username: 'tester', password: 'pw' };
+/**
+ * ⚠ 这一串路径是**抓取当时的布局**（既有约定 之后代码请求的是 `<base>/ShiTab/…`，归属层删掉了）。
+ * 留着原样是因为这份文件钉的是**真坚果云回话的形状**（空目录的 href 不带尾斜杠、`getetag` 为空、
+ * href 是相对路径要按请求 URL 解析），与布局无关；把夹具里的路径"改成新布局"就是伪造一份没发生过的抓取。
+ * 布局本身由 `test/remote-layout.spec.ts` 钉 —— 那份是手写期望，会跟着布局一起改。
+ */
 const ROOT = 'https://dav.jianguoyun.com/dav/ShiXiongZhiDao/ShiTab/';
 
 /** 真坚果云的 207 正文（ShiTab 目录下有 manifests/ 与 snapshots/ 两个集合，正文里就是这一份）。 */

@@ -137,13 +137,17 @@ export const POINTER_FORMAT = 'shitab-pointer' as const;
 /**
  * 远端目录名。大小写跟着产品名走（ShiTab），因为这是用户在文件管理器里看得见的东西。
  *
- * ⚠ 上架前要重新看这条和下面那条：`ShiXiongZhiDao` 是**师兄自己的网盘归属目录**，
- * 对一个公开扩展来说把别人的名字写进路径拼接是不成立的（别的用户会看见一个以他名字命名的目录）。
- * 落点记在 `既有约定` 的上架待办里，别让它默默跟着 v1.3 出门。
+ * ⚠ 这一段**必须是拉丁字符**：中文段会被 `new URL()` 百分号编码，而 `remote-layout` 的幂等
+ * 判据是按路径最后一段做精确匹配的 —— 编码之后两边对不上，同一条路径就长出两个名字（既有约定 决定 5）。
+ *
+ * ★ 这里原来还有一段**归属目录** `ShiXiongZhiDao/`（常量 `REMOTE_OWNER_FOLDER`），落点是
+ * `<baseUrl>/ShiXiongZhiDao/ShiTab/`。既有约定 把它去掉了：那一段是师兄自己的网盘目录名，
+ * 而它是**编进扩展产物里**的（`background.js` 跟着 `remoteRootUrl` 一路拼进去），
+ * 一个公开扩展把别人的名字写进路径拼接是不成立的。改完之后落点是 `<baseUrl>/ShiTab/`。
+ * ⚠ 代价：改动之前推上去的那些版本在新落点上认不回来（旧目录还在原地，只是没人读了），
+ * 每台设备都要重新攒 revision —— 处置写在 `既有约定` 的发布那一节。
  */
 export const REMOTE_ROOT_FOLDER = 'ShiTab' as const;
-/** 归属目录：数据放在 `<baseUrl>/ShiXiongZhiDao/ShiTab/`，而不是直接把应用目录挂在根上。 */
-export const REMOTE_OWNER_FOLDER = 'ShiXiongZhiDao' as const;
 export const REMOTE_SNAPSHOTS_FOLDER = 'snapshots' as const;
 export const REMOTE_MANIFESTS_FOLDER = 'manifests' as const;
 

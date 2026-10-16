@@ -47,11 +47,13 @@ const AT = 1_700_000_000_000;
 const BASE = 'https://host/dav';
 
 /**
- * "另一台设备写过的文件"要放在哪，一律**从拼接函数取**，不在测试里手写 `<base>/ShiTab/...`。
- * 手写的那份在布局改成 `<base>/ShiXiongZhiDao/ShiTab/` 之后立刻指到别处：
- * 引擎读的是新位置，假件里的"对方数据"留在旧位置，于是 7 条用例一起红
- * （`expected 'idle' to be 'conflict'` 这种奇怪现象 —— 红得算幸运，
+ * "另一台设备写过的文件"要放在哪，一律**从拼接函数取**，不在测试里手写远端路径。
+ * 手写的那份每次远端布局一变就指到别处：引擎读的是新位置，假件里的"对方数据"留在旧位置，
+ * 于是整批用例一起红（`expected 'idle' to be 'conflict'` 这种奇怪现象 —— 红得算幸运，
  *  要是断言方向反过来就会静默全绿）。布局只许有一份，测试要用就调它。
+ * ⚠ 这一条被写下之后**又复发了一次**（既有约定 去掉归属层那一下，`ui-sync-panel.spec.ts` 与
+ * 本文件那两条"面板显示的落点"断言因为手写而当场红）—— 落点那两句**有意**保留手写的字面值：
+ * 它们钉的正是"用户屏幕上看到的那条路径到底是什么"，用函数算出来就等于不钉。
  */
 const REMOTE_BASE = parseBaseUrl(BASE);
 if (!REMOTE_BASE.ok) throw new Error('setup：BASE 应当是合法地址');
@@ -817,13 +819,13 @@ describe('远端布局与真坚果云的 409', () => {
     const written = [...snapshotFiles(), ...manifestFiles()];
     expect(written.length).toBeGreaterThan(0);
     for (const url of written) expect(url.startsWith(root)).toBe(true);
-    expect(root).toBe('https://host/dav/ShiXiongZhiDao/ShiTab/');
+    expect(root).toBe('https://host/dav/ShiTab/');
   });
 
-  it('地址里已经写了归属目录 ⇒ 引擎写的还是同一条路径，不出现双拼库', async () => {
+  it('地址里已经写了应用目录 ⇒ 引擎写的还是同一条路径，不出现双拼库', async () => {
     await storage.setWebDavConfig({
       enabled: true,
-      baseUrl: 'https://host/dav/ShiXiongZhiDao',
+      baseUrl: 'https://host/dav/ShiTab',
       username: FAKE_CREDENTIAL.username,
       allowInsecureHttp: false,
     });
@@ -834,8 +836,8 @@ describe('远端布局与真坚果云的 409', () => {
     const written = [...snapshotFiles(), ...manifestFiles()];
     expect(written.length).toBe(2);
     for (const url of written) {
-      expect(url).not.toContain('ShiXiongZhiDao/ShiXiongZhiDao');
-      expect(url.startsWith('https://host/dav/ShiXiongZhiDao/ShiTab/')).toBe(true);
+      expect(url).not.toContain('ShiTab/ShiTab');
+      expect(url.startsWith('https://host/dav/ShiTab/')).toBe(true);
     }
   });
 });
