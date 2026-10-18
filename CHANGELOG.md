@@ -4,6 +4,19 @@ Every release that changed something you could see or click. Newest first.
 Older releases than 1.8.0 did not keep a changelog; the [README](./README.md) describes what the
 extension does today, which is a better guide to those versions than a list I would have to invent.
 
+## [1.12.1] - 2026-10-18
+
+- Added: the extension is listed on the Chrome Web Store and Edge Add-ons. From this version on,
+  the store listing moves in step with the GitHub/Gitee packages — once you install from a store
+  you get updates inside the browser instead of downloading a zip and loading it by hand.
+  Submissions are sent automatically by the release pipeline and go live when review passes.
+- Changed: the three images on the About page (two sponsor codes and one official-account banner)
+  are no longer inside the package; they load from a shared image repository when you open that
+  page (GitHub and Gitee mirrors, whichever answers first). The package shrank from about 376 KB
+  to about 171 KB. The cost, stated plainly: with no network those three images show
+  "couldn't load, retry" — the images themselves are byte-for-byte the same ones, what changed
+  is where they come from.
+
 ## [1.12.0] - 2026-10-16
 
 - Added: **Restore this version** is now a *replacement*, and it takes two clicks. The first click
