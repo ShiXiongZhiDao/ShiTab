@@ -208,7 +208,7 @@ Chrome 和 Edge 是日常在用、逐项验过的。Firefox 的产物由同一�
 
 | 支付宝 | 微信支付 |
 |---|---|
-| <img src="public/qr/alipay.png" width="150" alt="支付宝收款码"> | <img src="public/qr/wechat-pay.png" width="150" alt="微信支付收款码"> |
+| <img src="assets/qr/alipay.png" width="150" alt="支付宝收款码"> | <img src="assets/qr/wechat-pay.png" width="150" alt="微信支付收款码"> |
 
 ## 许可与声明
 
@@ -220,4 +220,4 @@ ShiTab 以 **MIT 授权**开源 —— 见 [LICENSE](./LICENSE)。
   [GitHub](https://github.com/ShiXiongZhiDao/ShiTab)
 - 公众号：**师兄知道** —— 扩展的关于页里也是这一个
 
-<img src="public/qr/wechat-official.png" width="560" alt="公众号二维码">
+<img src="assets/qr/wechat-official.png" width="560" alt="公众号二维码">

@@ -882,7 +882,13 @@
     "message": "微信收款二维码"
   },
   "options_qr_missing": {
-    "message": "图片没读到：__file__"
+    "message": "这张没读到：__file__"
+  },
+  "options_qr_offline": {
+    "message": "二维码是联网取的（没打进安装包，为的是让扩展小一点）。现在两个源都没连上 —— 检查网络，或稍后再试。"
+  },
+  "options_qr_retry": {
+    "message": "重试"
   },
   "options_subtitle": {
     "message": "一键收好 Tabs，之后随时找回"

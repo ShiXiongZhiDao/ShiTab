@@ -882,7 +882,13 @@
     "message": "WeChat Pay QR code"
   },
   "options_qr_missing": {
-    "message": "Image not found: __file__"
+    "message": "Could not load this one: __file__"
+  },
+  "options_qr_offline": {
+    "message": "The QR images are fetched over the network (they are not bundled, to keep the install small). Neither mirror answered — check your connection, or try again later."
+  },
+  "options_qr_retry": {
+    "message": "Retry"
   },
   "options_subtitle": {
     "message": "Stash tabs in one click, get them back any time"

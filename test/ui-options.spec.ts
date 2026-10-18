@@ -10,7 +10,7 @@
  * 只测一半的话，另一半坏了没人知道 —— 这条在这页上已经栽过一次（既有约定 那轮）。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
@@ -21,6 +21,7 @@ import AboutPanel from '@/components/AboutPanel.vue';
 import { storagePort } from '@/shared/services';
 import { filledRepos, type RepoLink } from '@/shared/repos';
 import { TRASH_RETENTION_MS } from '@/shared/constants';
+import { resetQrMirrorCache } from '@/shared/qr-mirror';
 
 const PANE_IDS = ['general', 'appearance', 'data', 'sync', 'about'] as const;
 type PaneId = (typeof PANE_IDS)[number];
@@ -29,6 +30,29 @@ type PaneId = (typeof PANE_IDS)[number];
 const PKG_VERSION = (JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as { version: string }).version;
 
 const mounted: VueWrapper[] = [];
+
+/**
+ * jsdom **不会真的去取图**：`new Image().src = …` 之后 `onload` / `onerror` 永远不触发，
+ * 于是「关于」那一屏的探活只能靠 4s 超时收尾 —— 每条用例白等 4 秒，而且拿不到
+ * "选到源"这一半的覆盖。这里换一个**立即应答**的假 Image：`reachable` 说了算，
+ * 探活在一次 microtask 内结束。
+ */
+const REAL_IMAGE = globalThis.Image;
+function stubImage(reachable: (url: string) => boolean): void {
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    private _src = '';
+    get src(): string {
+      return this._src;
+    }
+    set src(value: string) {
+      this._src = value;
+      queueMicrotask(() => (reachable(value) ? this.onload?.() : this.onerror?.()));
+    }
+  }
+  globalThis.Image = FakeImage as unknown as typeof Image;
+}
 
 async function mountApp(hash = ''): Promise<VueWrapper> {
   location.hash = hash;
@@ -58,11 +82,18 @@ beforeEach(async () => {
   setActivePinia(createPinia());
   await fakeBrowser.storage.local.clear();
   location.hash = '';
+  // 选源结果是**模块级缓存**的，不清掉会从上一条用例漏进来（"源不通"那条会因此拿到
+  // 上一轮探到的 github 而永远不显示提示）。这也正是 `resetQrMirrorCache` 存在的理由。
+  await resetQrMirrorCache();
+  resetQrMirrorCache();
+  // 默认两个源都可达 ⇒ 探活立刻出结果，用例不用等超时
+  stubImage(() => true);
 });
 
 afterEach(() => {
   for (const wrapper of mounted.splice(0)) wrapper.unmount();
   location.hash = '';
+  globalThis.Image = REAL_IMAGE;
 });
 
 describe('分区导航', () => {
@@ -262,37 +293,62 @@ describe('外观', () => {
 });
 
 describe('关于与赞助', () => {
-  it('三张码的 src 都指向仓库里真实存在的文件', async () => {
+  it('三张码走远程资产仓，不是打进包里的本地图', async () => {
     const wrapper = await mountApp();
     await goPane(wrapper, 'about');
 
-    // src 是 runtime.getURL 的结果（chrome-extension://<id>/qr/…），所以比的是结尾而不是整串
     const files = wrapper.findAll('.qr-pad img').map((img) => img.attributes('src') ?? '');
-    expect(files.map((src) => src.replace(/^.*\/qr\//, 'qr/'))).toEqual([
-      'qr/wechat-official.png',
-      'qr/alipay.png',
-      'qr/wechat-pay.png',
+    expect(files, '「关于」里该有三张码').toHaveLength(3);
+    // 末尾那段就是文件名，顺序与界面上的三块一致
+    expect(files.map((src) => src.slice(src.lastIndexOf('/') + 1))).toEqual([
+      'wechat-official.png',
+      'alipay.png',
+      'wechat-pay.png',
     ]);
+    // 关键的那条：不再是 chrome-extension:// 的本地路径 —— 那正是这次要去掉的 210 KB
     for (const src of files) {
-      const name = src.slice(src.lastIndexOf('/') + 1);
-      expect(existsSync(join(process.cwd(), 'public', 'qr', name)), `文件不存在：public/qr/${name}`).toBe(true);
+      expect(src, `码不该再走本地路径：${src}`).toMatch(/^https:\/\//);
+      expect(src).toContain('/images/about/');
     }
   });
 
-  it('图读不到时换成占位，并把缺的是哪个文件说出来', async () => {
+  it('一个源挂了退到下一个，都退完了才换成占位', async () => {
     const wrapper = await mountApp();
     await goPane(wrapper, 'about');
 
     const alipay = wrapper.find('[data-testid="qr-img-alipay"]');
     expect(alipay.exists(), '找不到支付宝那张码（testid 或图没了）').toBe(true);
+    const first = alipay.attributes('src') ?? '';
+
+    // 第一次失败：不该直接放弃，而是换另一个源再试
     await alipay.trigger('error');
     await flushPromises();
+    const second = wrapper.find('[data-testid="qr-img-alipay"]').attributes('src') ?? '';
+    expect(second, '退完之后应该换一个地址').not.toBe(first);
+    expect(wrapper.find('[data-testid="qr-missing-alipay"]').exists()).toBe(false);
 
+    // 第二次也失败：这才换成占位，并把缺的是哪张说出来
+    await wrapper.find('[data-testid="qr-img-alipay"]').trigger('error');
+    await flushPromises();
     const box = wrapper.find('[data-testid="qr-missing-alipay"]');
     expect(box.exists()).toBe(true);
-    expect(box.text()).toContain('qr/alipay.png');
+    expect(box.text()).toContain('alipay.png');
     // 另外两张不受牵连
     expect(wrapper.findAll('.qr-pad img')).toHaveLength(2);
+  });
+
+  it('两个源都探不通时明说"加载不出来"，并给一颗重试', async () => {
+    stubImage(() => false);
+    const wrapper = await mountApp();
+    await goPane(wrapper, 'about');
+    await flushPromises();
+
+    const hint = wrapper.find('[data-testid="qr-offline-hint"]');
+    expect(hint.exists(), '源不通就该说出来，不能是白板一块').toBe(true);
+    expect(hint.text()).toContain('Neither mirror answered');
+    expect(wrapper.find('[data-testid="qr-retry"]').exists()).toBe(true);
+    // 探活失败不等于"没图"：候选照样挂着，图还会一张张试
+    expect(wrapper.findAll('.qr-pad img')).toHaveLength(3);
   });
 
   it('每张码都有读屏念得出的名字，横幅那张不会被念成"图片"', async () => {

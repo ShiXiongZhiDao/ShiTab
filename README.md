@@ -271,7 +271,7 @@ If ShiTab saves your afternoon, you can buy the author a coffee — thank you, i
 
 | Alipay | WeChat Pay |
 |---|---|
-| <img src="public/qr/alipay.png" width="150" alt="Alipay QR"> | <img src="public/qr/wechat-pay.png" width="150" alt="WeChat Pay QR"> |
+| <img src="assets/qr/alipay.png" width="150" alt="Alipay QR"> | <img src="assets/qr/wechat-pay.png" width="150" alt="WeChat Pay QR"> |
 
 ## License & notice
 
@@ -283,4 +283,4 @@ ShiTab is open source under the **MIT license** — see [LICENSE](./LICENSE).
   [GitHub](https://github.com/ShiXiongZhiDao/ShiTab)
 - WeChat Official Account: **师兄知道** — the same account is on the extension's About page.
 
-<img src="public/qr/wechat-official.png" width="560" alt="WeChat Official Account card">
+<img src="assets/qr/wechat-official.png" width="560" alt="WeChat Official Account card">

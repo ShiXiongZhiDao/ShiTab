@@ -1,11 +1,11 @@
 <script lang="ts" setup>
 /**
- * 「关于」分区。
+ * 「关于」分区（既有约定，二维码取图方式经 既有约定 改过）。
  *
  * 里面三件事：这个扩展是什么（品牌 + 版本 + 一句话）、它能碰到什么（权限说明），
  * 以及怎么支持它（公众号 + 支付宝 + 微信三张码）。
  *
- * 三条不是顺手做出的选择，别在下次"再简化一点"时弄丢：
+ * 四条不是顺手做出的选择，别在下次"再简化一点"时弄丢：
  *
  * 1. **码永远坐在白色底垫上，暗色主题也不反色。**扫码 app 靠深浅模块的对比与三个定位角工作，
  *    把 QR 画成"暗底亮块"经常扫不出来。所以 `.qr-pad` 的白是**故意的硬编码**，
@@ -17,50 +17,77 @@
  *    「微信搜一搜」传播样式（1040×380 的横幅，左 QR 右"微信搜一搜 + 账号名"），
  *    裁掉右半就丢了"搜什么"这句引导，所以整张按横幅排版。
  *
- * 3. **图读不到时要留一个形状不变的占位**，不能是浏览器那个裂图图标。
- *    照 `TabRow.vue` 对 favicon 的处置：`@error` 退回同尺寸占位 ⇒ 布局不跳。
- *    `width`/`height` 属性给的是图片真实像素，配合 `h-auto` 让浏览器在解码前就占好位。
+ * 3. **图位尺寸是写死的，图没到之前就占好位。**`width`/`height` 属性给的是图片真实像素，
+ *    配合工具类让浏览器在解码前就把框撑起来；图读不到时换成**同尺寸的虚线占位**，
+ *    不能是浏览器那个裂图图标 —— 照 `TabRow.vue` 对 favicon 的处置，布局不跳。
+ *
+ * 4. **三张码不在扩展包里，走网络取。**三张共 210 KB，占 chrome 产物 zip 的
+ *    54.8%，而它们只有打开这一屏才看得见。代价如实记着：**断网或资产仓不可达时，这一屏
+ *    没有图** —— 所以失败必须是看得见的（一条错误提示 + 重试），不能是"白板一块"。
  */
-import { ref } from 'vue';
-import type { PublicPath } from 'wxt/browser';
+import { computed, onMounted, ref } from 'vue';
 import PaneHeader from '@/components/PaneHeader.vue';
 import { t } from '@/shared/i18n';
 import { filledRepos, type RepoLink } from '@/shared/repos';
+import {
+  QR_FILES,
+  chooseQrMirrorCached,
+  qrUrls,
+  resetQrMirrorCache,
+  type QrField,
+  type QrMirror,
+} from '@/shared/qr-mirror';
+import { useQrImage } from '@/composables/useQrImage';
 
 /**
- * 三张码的路径只在这里写一遍。
+ * 选源结果。`null` = 两个源都没探通（或还没探完）。
  *
- * 为什么不用模板里的静态 `src="/qr/alipay.png"`：`@vitejs/plugin-vue` 默认开着
- * `transformAssetUrls`，会把静态 `src` 改写成**模块 import**，测试环境里加载这一步就直接抛
- * `ERR_INVALID_ARG_VALUE`（实测：报的是 `file:///qr/wechat-official.png`）。
- *
- * 为什么类型是 `PublicPath` 而不是 `string`：WXT 从 `public/` 的实际内容生成这个联合
- * （`.wxt/types/paths.d.ts`，含 `/qr/alipay.png` 三条，**带开头的斜杠**）。
- * 用它当参数类型，等于"图被改名或删掉 ⇒ `vue-tsc` 当场红"，
- * 而不是等用户在设置页看到一个裂图。所以这里不写 `as never` 之类的绕过。
+ * 注意 **`null` 不等于"没图"**：`qrUrls(null, …)` 会按原序给出两个候选，
+ * 图照样一张张试。探活失败只说明"探测那一次没通"，不代表现在一定不通 ——
+ * 所以下面那条提示是**提前告知**，不是"宣判死刑"。
  */
-const QR = {
-  official: '/qr/wechat-official.png',
-  alipay: '/qr/alipay.png',
-  wechatPay: '/qr/wechat-pay.png',
-} as const satisfies Record<string, PublicPath>;
+const mirror = ref<QrMirror | null>(null);
+/** 探活是不是已经跑完（用来决定要不要显示那条提示，避免刚打开就闪一下红字）。 */
+const probeDone = ref(false);
 
-/** 缺图提示里说的那个路径，由真正去取的那条派生（去掉开头的斜杠），不是又抄一遍。 */
-function qrPath(path: PublicPath): string {
-  return path.slice(1);
+const official = useQrImage(() => qrUrls(mirror.value, 'wechatOfficial'));
+const alipay = useQrImage(() => qrUrls(mirror.value, 'alipay'));
+const wechatPay = useQrImage(() => qrUrls(mirror.value, 'wechatPay'));
+
+/**
+ * 那条提示什么时候出现：**探活没选出源，而且一张图都没真的出来**。
+ *
+ * 两个条件缺一不可 ——
+ * - 只满足前者就提示，会在"探测那一次网络抖了一下、图其实全加载出来了"时说谎；
+ * - 只满足后者（三张全挂）时，各自的位置上已经有占位了，再叠一条提示是重复。
+ *
+ * 单张挂（某一张 404）不牵连整屏：那个位置自己有占位。
+ */
+const showOfflineHint = computed(
+  () =>
+    probeDone.value &&
+    mirror.value === null &&
+    !official.loaded.value &&
+    !alipay.loaded.value &&
+    !wechatPay.loaded.value,
+);
+
+async function probe(): Promise<void> {
+  probeDone.value = false;
+  mirror.value = await chooseQrMirrorCached();
+  probeDone.value = true;
 }
-/** 走函数而不是在模板里直接点 `browser`：模板表达式里的自动导入不稳，脚本里一定注入。 */
-function qrUrl(path: PublicPath): string {
-  return browser.runtime.getURL(path);
+
+/** 重试：作废选源缓存再探一次，三张图的回落也从头开始（由 `useQrImage` 的 watch 兜住）。 */
+async function retry(): Promise<void> {
+  resetQrMirrorCache();
+  await probe();
 }
+
+onMounted(probe);
 
 /** 版本号读 manifest，不在这里手写第二遍（既有约定；`options/App.vue` 里那条守卫用例盯着同一件事）。 */
 const version = `v${browser.runtime.getManifest().version}`;
-
-const broken = ref<Record<string, boolean>>({});
-function markBroken(id: string): void {
-  broken.value = { ...broken.value, [id]: true };
-}
 
 /**
  * 仓库列表默认取 `shared/repos.ts` 里填好的那些。
@@ -69,6 +96,11 @@ function markBroken(id: string): void {
  * 只测"空列表时不渲染"是不够的。
  */
 const props = withDefaults(defineProps<{ repos?: RepoLink[] }>(), { repos: () => filledRepos() });
+
+/** 占位里说的那个文件名，由 `QR_FILES` 派生，不是又抄一遍字符串。 */
+function fileName(field: QrField): string {
+  return QR_FILES[field];
+}
 </script>
 
 <template>
@@ -126,22 +158,44 @@ const props = withDefaults(defineProps<{ repos?: RepoLink[] }>(), { repos: () =>
       </ul>
     </section>
 
+    <!--
+      图走网络取 ⇒ 有可能一张都拿不到。探活跑完却没选出源时把话说在前面，
+      并给一颗重试 —— 静默地白板一块是这仓最不能接受的那类失败。
+      只在"真的拿不到"时出现：单张 404 由下面各自的占位兜住，不该牵连整屏。
+    -->
+    <section
+      v-if="showOfflineHint"
+      class="mb-3.5 flex flex-wrap items-center gap-3 rounded-card border border-line bg-panel p-4"
+      data-testid="qr-offline-hint"
+    >
+      <p class="m-0 min-w-0 flex-1 text-[11px] leading-relaxed text-muted">{{ t('options_qr_offline') }}</p>
+      <button
+        type="button"
+        class="shrink-0 rounded-control border border-line bg-chip px-3 py-1.5 text-[11.5px] font-bold text-ink transition-colors hover:border-brand hover:text-brand"
+        data-testid="qr-retry"
+        @click="retry"
+      >
+        {{ t('options_qr_retry') }}
+      </button>
+    </section>
+
     <section class="mb-3.5 rounded-card border border-line bg-panel p-5">
       <h3 class="m-0 mb-3.5 text-[11px] font-extrabold tracking-widest text-muted">{{ t('options_official_section') }}</h3>
       <div class="flex flex-wrap items-start gap-5">
         <div class="qr-pad rounded-control">
           <img
-            v-if="!broken.official"
+            v-if="!official.exhausted.value"
             alt=""
             class="block h-auto w-full max-w-[520px]"
             data-testid="qr-img-official"
-            :src="qrUrl(QR.official)"
+            :src="official.current.value"
             height="380"
             width="1040"
-            @error="markBroken('official')"
+            @error="official.onError"
+            @load="official.onLoad"
           />
           <div v-else class="qr-missing rounded-tight h-[190px] w-full max-w-[520px]" data-testid="qr-missing-official">
-            {{ t('options_qr_missing', { file: qrPath(QR.official) }) }}
+            {{ t('options_qr_missing', { file: fileName('wechatOfficial') }) }}
           </div>
         </div>
         <div class="min-w-0">
@@ -159,17 +213,18 @@ const props = withDefaults(defineProps<{ repos?: RepoLink[] }>(), { repos: () =>
         <div>
           <div class="qr-pad rounded-control mb-2.5 w-fit">
             <img
-              v-if="!broken.alipay"
+              v-if="!alipay.exhausted.value"
               alt=""
               class="block h-[168px] w-[168px] object-contain"
               data-testid="qr-img-alipay"
-              :src="qrUrl(QR.alipay)"
+              :src="alipay.current.value"
               height="418"
               width="420"
-              @error="markBroken('alipay')"
+              @error="alipay.onError"
+              @load="alipay.onLoad"
             />
             <div v-else class="qr-missing rounded-tight h-[168px] w-[168px]" data-testid="qr-missing-alipay">
-              {{ t('options_qr_missing', { file: qrPath(QR.alipay) }) }}
+              {{ t('options_qr_missing', { file: fileName('alipay') }) }}
             </div>
           </div>
           <p class="m-0 text-[12px] font-bold">{{ t('options_sponsor_alipay') }}</p>
@@ -179,17 +234,18 @@ const props = withDefaults(defineProps<{ repos?: RepoLink[] }>(), { repos: () =>
         <div>
           <div class="qr-pad rounded-control mb-2.5 w-fit">
             <img
-              v-if="!broken.wechatPay"
+              v-if="!wechatPay.exhausted.value"
               alt=""
               class="block h-[168px] w-[168px] object-contain"
               data-testid="qr-img-wechat-pay"
-              :src="qrUrl(QR.wechatPay)"
+              :src="wechatPay.current.value"
               height="415"
               width="420"
-              @error="markBroken('wechatPay')"
+              @error="wechatPay.onError"
+              @load="wechatPay.onLoad"
             />
             <div v-else class="qr-missing rounded-tight h-[168px] w-[168px]" data-testid="qr-missing-wechat-pay">
-              {{ t('options_qr_missing', { file: qrPath(QR.wechatPay) }) }}
+              {{ t('options_qr_missing', { file: fileName('wechatPay') }) }}
             </div>
           </div>
           <p class="m-0 text-[12px] font-bold">{{ t('options_sponsor_wechat') }}</p>
