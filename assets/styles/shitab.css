@@ -7,8 +7,14 @@
  * 暗色派生规则（既有约定 要求记录，待用户过目）：
  * 保持亮色的色相与饱和度方向不变，把亮度做反向映射——
  * 亮色的浅背景变成暗色的深背景，正文与反色互换；
- * 主色 brand 在暗色下提亮一档（#356d52 -> #54a97c），
- * 否则白字压在深青绿上的对比度在深色背景旁会显得发闷。
+ * 主色 brand 在暗色下提亮一档（#0a8049 -> #12b269），
+ * 否则白字压在品牌绿上的对比度在深色背景旁会显得发闷。
+ *
+ * 2026-10-19 品牌绿换色（既有约定，用户反馈旧绿太深）：全套 brand token
+ * 从 #356d52 系换成同门 shistart 的品牌绿 #0a8049 系，四个派生档按旧档的
+ * 明度关系重算（同色相、同明度差）：soft #e6f0eb→#e2f3ec、hover #2c5c45→#08683b、
+ * 暗色 soft #1e2b25→#132a21、暗色 hover #67bd8e→#15d17c。
+ * 对比度：亮色白字 6.07→5.00（仍过 AA 4.5）；暗色 #12b269 vs 深字 #0d1512 = 6.71（旧档 6.48）。
  */
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -30,10 +36,10 @@
   /* ⚠ 这一档在白底只有 2.61:1，连"大字/非文本 UI"的 3:1 都不到 ⇒ **不许再拿它承载文字**。
      产品里原来仅有的两处（TabRow 的 9px 域名、10px × 按钮）已改用 --muted。 */
   --tn-muted-soft: #9aa1a8;
-  --tn-brand: #356d52;
+  --tn-brand: #0a8049;
   --tn-brand-contrast: #ffffff;
-  --tn-brand-soft: #e6f0eb;
-  --tn-brand-hover: #2c5c45;
+  --tn-brand-soft: #e2f3ec;
+  --tn-brand-hover: #08683b;
   --tn-danger: #a8443c;
   --tn-danger-soft: #f7e9e7;
   --tn-warn: #7d6219;
@@ -52,10 +58,10 @@
   --tn-text: #e6eaf0;
   --tn-muted: #8d97a3;
   --tn-muted-soft: #6f7984;
-  --tn-brand: #54a97c;
+  --tn-brand: #12b269;
   --tn-brand-contrast: #0d1512;
-  --tn-brand-soft: #1e2b25;
-  --tn-brand-hover: #67bd8e;
+  --tn-brand-soft: #132a21;
+  --tn-brand-hover: #15d17c;
   --tn-danger: #e08a80;
   --tn-danger-soft: #33201e;
   --tn-warn: #d6b45e;

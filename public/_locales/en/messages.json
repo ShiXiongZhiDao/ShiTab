@@ -350,6 +350,48 @@
   "options_include_pinned_tabs": {
     "message": "Also stash tabs I pinned myself"
   },
+  "options_blacklist_section": {
+    "message": "Never stash these"
+  },
+  "options_blacklist_hint": {
+    "message": "A tab whose URL starts with any of these is left alone: it is not stashed, and it is not closed either. Unchecking one means ShiTab will stash that kind of page."
+  },
+  "options_blacklist_expand": {
+    "message": "Show blacklist settings"
+  },
+  "options_blacklist_collapse": {
+    "message": "Collapse"
+  },
+  "options_blacklist_unblock_warning": {
+    "message": "Once unchecked, this kind of page will be stashed and closed. Some browsers also refuse to reopen it — such entries stay in the session, marked as not directly restorable."
+  },
+  "options_blacklist_summary": {
+    "message": "__count__ prefixes are never stashed."
+  },
+  "options_blacklist_summary_unblocked": {
+    "message": "__count__ prefixes are never stashed, but __list__ will be stashed (and closed)."
+  },
+  "options_blacklist_add": {
+    "message": "Add"
+  },
+  "options_blacklist_add_placeholder": {
+    "message": "chrome:// or example.com/path/"
+  },
+  "options_blacklist_echo": {
+    "message": "Will match __prefix__"
+  },
+  "options_blacklist_invalid": {
+    "message": "Cannot read that as a URL prefix — write it as a scheme (chrome://) or a full address (https://example.com/)."
+  },
+  "options_blacklist_duplicate": {
+    "message": "Already in the list."
+  },
+  "options_blacklist_remove": {
+    "message": "Remove"
+  },
+  "options_blacklist_floor_note": {
+    "message": "about:blank and javascript: are never stashed and cannot be turned off here — the first is the landing page ShiTab opens for itself, the second is refused by the browser."
+  },
   "options_entry_section": {
     "message": "Tab bar entry (T)"
   },
@@ -892,9 +934,6 @@
   },
   "options_subtitle": {
     "message": "Stash tabs in one click, get them back any time"
-  },
-  "options_local_only": {
-    "message": "local storage only, no account"
   },
   "options_sync_sub": {
     "message": "Sync your sessions to your own WebDAV drive. Off by default: until you fill this in, no request is ever sent."

@@ -32,12 +32,13 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(process.cwd());
 const STORE = join(ROOT, 'assets', 'store');
 
-const BRAND: [number, number, number] = [0x35, 0x6d, 0x52];
+// 品牌绿 2026-10-19 换色：#356d52 → #0a8049（与同门 shistart 同一色）。
+const BRAND: [number, number, number] = [0x0a, 0x80, 0x49];
 const INK: [number, number, number] = [0xff, 0xff, 0xff];
-const TINT: [number, number, number] = [0xe6, 0xf0, 0xeb];
-const BRAND_HEX = '356d52';
+const TINT: [number, number, number] = [0xe2, 0xf3, 0xec];
+const BRAND_HEX = '0a8049';
 const INK_HEX = 'ffffff';
-const TINT_HEX = 'e6f0eb';
+const TINT_HEX = 'e2f3ec';
 
 /** 促销图上那颗底板占图高的比例 —— 口味值，钉在这里，改它要连这里一起改。 */
 const TILE_PLATE_RATIO = 0.72;

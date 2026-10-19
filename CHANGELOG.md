@@ -4,6 +4,19 @@ Every release that changed something you could see or click. Newest first.
 Older releases than 1.8.0 did not keep a changelog; the [README](./README.md) describes what the
 extension does today, which is a better guide to those versions than a list I would have to invent.
 
+## [1.13.0] - 2026-10-19
+
+- Added: a "Never stash these" list under Settings → General. It decides which pages a stash leaves
+  alone. Its own pages and the two store consoles can now be included if you want them, and you can
+  add your own URL prefixes. The list is folded away by default, and a line at the top of the panel
+  says which prefixes are currently never stashed and which ones will be stashed.
+- Changed: the brand green is now the same one as the sibling project — icon, UI accents and store
+  images all moved together. White text on it still clears the contrast threshold.
+- Removed: the version line at the bottom of the settings sidebar. The version still shows on the
+  About page.
+- Fixed: checking an internal scheme such as `chrome://` in that list no longer unchecks itself
+  after a page reload. (Chrome's URL parser rejects `chrome://`; the old check relied on it.)
+
 ## [1.12.1] - 2026-10-18
 
 - Added: the extension is listed on the Chrome Web Store and Edge Add-ons. From this version on,

@@ -42,7 +42,7 @@ import type {
   TabGroup,
 } from '@/shared/types';
 import { createGroup } from '@/core/domain/group';
-import { isCapturableTab, isRestorableUrl, isEntryTabUrl, toSavedTab } from '@/core/domain/tab';
+import { isCapturableTab, isEntryTabUrl, toSavedTab } from '@/core/domain/tab';
 import { selectScopeTabs, type CaptureScope } from '@/core/application/capture-scopes';
 import type { BrowserTab } from '@/shared/types';
 import { newId, now } from '@/shared/utils';
@@ -115,7 +115,12 @@ export async function captureWindow(
   const operationId = newId();
 
   const settings = await deps.storage.getSettings();
-  const policy = { includePinnedTabs: settings.includePinnedTabs };
+  // 黑名单从 Settings 里来，与 `toSavedTab` 用的是同一份 —— 判据与 `restorable` 那条布尔
+  // 必须同源，所以这份数组在这里取一次、往下传，不在两处各读一次。
+  const policy = {
+    includePinnedTabs: settings.includePinnedTabs,
+    blockedPrefixes: settings.blockedPrefixes,
+  };
   const windowTabs = await deps.tabs.queryWindowTabs(input.windowId);
   // 范围解析用的是**这一次查询**拿到的列表，不是调用方事先算好的 tab id 数组：
   // 中间隔一次 await 的话，"右键的瞬间"与"开始收纳的瞬间"可能已经不是同一批标签了。
@@ -149,7 +154,14 @@ export async function captureWindow(
     capturable.map((tab, i) => ({
       browserTabId: tab.id,
       wasActive: tab.active,
-      saved: toSavedTab({ tab, groupId: group.id, sortOrder: i, createdAt: at, closeState }),
+      saved: toSavedTab({
+        tab,
+        groupId: group.id,
+        sortOrder: i,
+        createdAt: at,
+        closeState,
+        blockedPrefixes: policy.blockedPrefixes,
+      }),
     }));
 
   // 快照**只构建一次**。第二遍只改 closeState。
@@ -207,7 +219,9 @@ export async function captureWindow(
     kept: count('kept'),
     failed: count('failed'),
     pinnedSkipped,
-    nonRestorableSaved: withState.filter((entry) => !isRestorableUrl(entry.saved.url)).length,
+    // 既有约定 之后这一格重新可能 > 0：用户把某个协议从黑名单里去掉，就会收进来
+    // 一条开不回来的记录。它是那条过滤器的探针 —— 哪天有人绕开它，结果条会当场说出来。
+    nonRestorableSaved: withState.filter((entry) => !entry.saved.restorable).length,
     savedTabs: finalGroup.tabs,
     closableTabIds: closedEntries.map((entry) => entry.browserTabId),
     activeTabUrl: capturable.find((tab) => tab.active)?.url,

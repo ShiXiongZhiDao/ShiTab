@@ -148,6 +148,16 @@ export interface Settings {
   theme: Theme;
   /** 界面语言。默认 `system`（跟随浏览器）；和 theme 一样是"每台机器自己的偏好"，进备份。 */
   locale: LocaleChoice;
+  /**
+   * 收纳黑名单：一串 URL 前缀，**命中的 tab 不收也不关**。
+   *
+   * 硬底（`javascript:` / `about:blank`）不在这张表里 —— 它在 `isBlockedUrl` 里另外判，
+   * 用户勾掉也没用。默认值、归一化与判据都在 `core/domain/blocked-prefixes.ts` 一处。
+   *
+   * 与 theme / locale 同形：进备份与导出，但**不进同步**（Settings 不在同步载荷里）
+   * ⇒ 它是**这台机器**的偏好。
+   */
+  blockedPrefixes: string[];
 }
 
 /**

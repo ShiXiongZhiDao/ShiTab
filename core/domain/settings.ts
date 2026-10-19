@@ -1,6 +1,7 @@
 /** Settings 的默认值与防御性合并。 */
 
 import type { LocaleChoice, Settings, Theme } from '@/shared/types';
+import { DEFAULT_BLOCKED_PREFIXES, mergeBlockedPrefixes } from '@/core/domain/blocked-prefixes';
 
 /**
  * 注意：**没有** compactMode 与 restoreInOrder —— 既有约定 砍掉了它们
@@ -21,6 +22,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // 默认跟随浏览器 UI 语言。"装完就是我浏览器的那门语言"是预期行为，
   // 显式选一次是例外。
   locale: 'system',
+  // 收纳黑名单。默认值与判据都在 `core/domain/blocked-prefixes.ts` 一处。
+  blockedPrefixes: [...DEFAULT_BLOCKED_PREFIXES],
 };
 
 const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
@@ -86,6 +89,10 @@ export function mergeSettings(raw: unknown): Settings {
   if (typeof source.locale === 'string' && LOCALES.includes(source.locale as LocaleChoice)) {
     merged.locale = source.locale as LocaleChoice;
   }
+  // 数组字段的防御性合并是本仓第一次（其余全是布尔与枚举）：
+  // 不是数组 / 里有非字符串 / 归一化后认不出来 ⇒ 那一项丢掉；整个键缺失 ⇒ 出厂默认。
+  // 与布尔键同一条规矩：老备份照导，不报错。
+  merged.blockedPrefixes = mergeBlockedPrefixes(source.blockedPrefixes);
   return merged;
 }
 

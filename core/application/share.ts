@@ -87,7 +87,7 @@ export function buildShareHtml(group: TabGroup, at: number, brand: string): stri
       .meta { margin: 0 0 20px; color: #7b8490; font-size: 12px; }
       ol { margin: 0; padding-left: 22px; }
       li { margin: 0 0 12px; }
-      a { color: #356d52; font-weight: 600; text-decoration: none; }
+      a { color: #0a8049; font-weight: 600; text-decoration: none; }
       a:hover { text-decoration: underline; }
       .url { display: block; color: #7b8490; font-size: 11px; word-break: break-all; }
       footer { margin-top: 24px; color: #7b8490; font-size: 11px; }

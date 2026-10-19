@@ -21,7 +21,7 @@ import type {
   ValidationError,
 } from '@/shared/types';
 import { BACKUP_FORMAT, BACKUP_VERSION, SCHEMA_VERSION } from '@/shared/constants';
-import { isRestorableUrl } from '@/core/domain/tab';
+import { DEFAULT_BLOCKED_PREFIXES, isBlockedUrl } from '@/core/domain/blocked-prefixes';
 import { normalizeTitle, renumberTabs, tailSortOrder, toIndexEntry } from '@/core/domain/group';
 import { nextCategorySortOrder, normalizeCategoryName } from '@/core/domain/category';
 import { mergeSettings } from '@/core/domain/settings';
@@ -143,11 +143,15 @@ export function validateBackup(raw: unknown): ValidateOutcome {
         originalPinned: tabCandidate.originalPinned === true,
         wasActive: tabCandidate.wasActive === true,
         closeState: closeStateOf(tabCandidate.closeState),
-        // 既有约定：备份里没有 restorable 时按当前规则重算，而不是拒绝整份备份
+        // 既有约定：备份里没有 restorable 时按当前规则重算，而不是拒绝整份备份。
+        // ⚠ 既有约定 之后"当前规则"是黑名单，这里用**出厂默认**那份而不是导入者当下的配置：
+        // 这条记录是别人（或别的时刻、别的机器）存下来的，拿我这台机器的配置去判它
+        // 会把"他那边的可恢复"判成"我这边不可恢复"。缺字段只出现在手写的旧备份上，
+        // 重算的目的是让这类文件能导进来，不是替它做决定。
         restorable:
           typeof tabCandidate.restorable === 'boolean'
             ? tabCandidate.restorable
-            : isRestorableUrl(url),
+            : !isBlockedUrl(url, DEFAULT_BLOCKED_PREFIXES),
       };
       const favicon = str(tabCandidate.faviconUrl);
       if (favicon) restored.faviconUrl = favicon;

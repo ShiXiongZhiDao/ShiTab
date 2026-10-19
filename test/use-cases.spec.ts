@@ -242,34 +242,68 @@ describe('captureWindow（V1.1 设计包 §3.1 / §6 / §21）', () => {
     expect(group.tabs.find((tab) => tab.url === 'https://a.test/1')?.closeState).toBe('failed');
   });
 
-  it('不能直接恢复的页面**不进会话、也不被送去关**，它留在窗口里（既有约定 反转 既有约定）', async () => {
+  it('命中黑名单的页面**不进会话、也不被送去关**，它留在窗口里（既有约定 反转 既有约定；既有约定 把"命中"换成可配置）', async () => {
     const deps = ports({ windows: [{ id: 1, tabs: [
       { id: 11, url: 'https://a.test/1', active: true },
       { id: 12, url: 'chrome://extensions', title: '扩展' },
       { id: 13, url: 'https://a.test/2' },
       { id: 14, url: 'edge://settings' },
       { id: 15, url: 'about:blank' },
+      // ★ 既有约定：扩展页默认**不再**在黑名单里（取证：两端 `chrome-extension://` 都开得成），
+      //   所以它现在被**照收照关** —— 这一格是本次唯一一条默认行为变化，用例跟着改期望。
       { id: 16, url: `${FAKE_EXTENSION_ORIGIN}/options.html`, title: '师兄收纳 · 设置' },
     ] }] });
     const outcome = await captureWindow(deps, { windowId: 1, at: AT });
     if (!outcome.ok) throw new Error('收纳不该失败');
 
-    // 会话里只剩两条能开出来的网页，`restorable` 一律为 true
-    expect(outcome.result.savedTabs.map((tab) => tab.url)).toEqual(['https://a.test/1', 'https://a.test/2']);
+    // 三条：两条网页 + 默认解除的那条扩展页，`restorable` 一律为 true
+    expect(outcome.result.savedTabs.map((tab) => tab.url)).toEqual([
+      'https://a.test/1',
+      'https://a.test/2',
+      `${FAKE_EXTENSION_ORIGIN}/options.html`,
+    ]);
     expect(outcome.result.savedTabs.every((tab) => tab.restorable)).toBe(true);
-    // 正向对照：同一窗口里普通网页确实被收了也确被关了 —— 上面那句"没有"不是整条收纳失灵
-    expect(outcome.result).toMatchObject({ saved: 2, closed: 2, kept: 0, failed: 0 });
-    // ★ 关键的一条：**不在会话里 ≠ 没被关掉**。断的是送去关的那份名单。
-    expect(deps.tabs.removeCalls()).toEqual([[11, 13]]);
-    // 四条不可恢复的页面原封不动留在窗口里（顺序 = 原来标签栏里的顺序）
+    expect(outcome.result).toMatchObject({ saved: 3, closed: 3, kept: 0, failed: 0 });
+    // ★ 关键的一条：**不在会话里 ≠ 没被关掉**。断的是送去关的那份名单（16 现在在里面）。
+    expect(deps.tabs.removeCalls()).toEqual([[11, 13, 16]]);
+    // 三条命中默认黑名单的页面原封不动留在窗口里（顺序 = 原来标签栏里的顺序）
     expect((deps.tabs.dump()[1] ?? []).map((tab) => tab.url)).toEqual([
       'chrome://extensions',
       'edge://settings',
       'about:blank',
-      `${FAKE_EXTENSION_ORIGIN}/options.html`,
     ]);
-    // 这一格现在结构上恒为 0（`shared/types.ts` 记着为什么还留着它）
+    // 默认配置下仍然没有"存了但开不回来"的行（`shared/types.ts` 记着这个字段为什么还留着）
     expect(outcome.result.nonRestorableSaved).toBe(0);
+  });
+
+  it('硬底不受配置影响：把黑名单清空之后 `about:blank` 与 `javascript:` 照样不收（既有约定 D3）', async () => {
+    const deps = ports({ windows: [{ id: 1, tabs: [
+      { id: 11, url: 'https://a.test/1', active: true },
+      // 空白页是我们自己的落脚页（capture-window.ts 会主动 create 它），
+      // 收它 ⇒ 关了入口页的用户连点两次就会收出一个空白页会话。
+      { id: 12, url: 'about:blank' },
+      // 取证里唯一被平台点名拒绝的那个协议
+      { id: 13, url: 'javascript:void 0' },
+      // 对照：默认表里那些（chrome://）在清空之后就**收**了 —— 上面那两条不是"整条失灵"
+      { id: 14, url: 'chrome://extensions' },
+    ] }] });
+    // 黑名单清空 ⇒ 用户愿意收一切；硬底不看这张表，所以下面那两条照样进不来。
+    await deps.storage.setSettings({
+      ...(await deps.storage.getSettings()),
+      blockedPrefixes: [],
+    });
+    const outcome = await captureWindow(deps, { windowId: 1, at: AT });
+    if (!outcome.ok) throw new Error('收纳不该失败');
+
+    expect(outcome.result.savedTabs.map((tab) => tab.url)).toEqual([
+      'https://a.test/1',
+      'chrome://extensions',
+    ]);
+    expect(deps.tabs.removeCalls()).toEqual([[11, 14]]);
+    expect((deps.tabs.dump()[1] ?? []).map((tab) => tab.url)).toEqual([
+      'about:blank',
+      'javascript:void 0',
+    ]);
   });
 
   it('整窗只有新标签页与内部页 ⇒ 走既有的 no-stashable-tabs：不建会话、不安排落脚页、一次都不关', async () => {

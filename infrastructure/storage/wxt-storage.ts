@@ -54,10 +54,11 @@ const INDEX_VERSION = 1;
  * 才会被迁移碰，`meta` / `groups:index` / `categories` / `rev` 保持 v1，升级时不产生无谓的兄弟键。
  *
  * - Settings：v1→v2 翻转 `closeActiveTab`；v2→v3 删 `openRestoredGroupInNewWindow`；
- *   v3→v4 删 `deleteGroupAfterRestore`（既有约定，恢复即消费）
+ *   v3→v4 删 `deleteGroupAfterRestore`（既有约定，恢复即消费）；
+ *   v4→v5 加 `blockedPrefixes`
  * - group：v1→v2 补快照字段；v2→v3 补 `locked`
  */
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 const GROUP_VERSION = 3;
 
 const GROUP_PREFIX = STORAGE_KEYS.groupKeyPrefix;
@@ -100,10 +101,25 @@ export const migrateSettingsV2toV3 = (previous: Settings): Settings => mergeSett
  */
 export const migrateSettingsV3toV4 = (previous: Settings): Settings => mergeSettings(previous);
 
+/**
+ * v4→v5：补 `blockedPrefixes`（既有约定，收纳黑名单）。
+ *
+ * ⚠ 这一格**必须抬版本**，不能靠"读的时候补默认值"：已经在 v4 的存储值里没有这个键，
+ * 不触发迁移就会拿到 `undefined`，而**数组字段的 `undefined` 会把判据直接跑崩**
+ * （布尔字段最多是 `?? false` 的事，数组是 `.some()` 当场抛）。
+ * 这也是本仓第一个数组型设置字段 —— 防御性合并在 `mergeBlockedPrefixes` 里。
+ */
+export const migrateSettingsV4toV5 = (previous: Settings): Settings => mergeSettings(previous);
+
 const settingsItem = storage.defineItem<Settings>(areaKey(STORAGE_KEYS.settings), {
   fallback: DEFAULT_SETTINGS,
   version: SETTINGS_VERSION,
-  migrations: { 2: migrateSettingsV1toV2, 3: migrateSettingsV2toV3, 4: migrateSettingsV3toV4 },
+  migrations: {
+    2: migrateSettingsV1toV2,
+    3: migrateSettingsV2toV3,
+    4: migrateSettingsV3toV4,
+    5: migrateSettingsV4toV5,
+  },
 });
 const metaItem = defineItem<StorageMeta>(
   STORAGE_KEYS.meta,

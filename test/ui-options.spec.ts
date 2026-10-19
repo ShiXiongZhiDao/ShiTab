@@ -371,9 +371,9 @@ describe('关于与赞助', () => {
   });
 
   it('版本号是从 manifest 来的，屏幕上那个就是 package.json 里那个', async () => {
+    // 设置页导航底部那行「版本 · 只存本机」2026-10-19 按用户要求整行去掉
+    // ⇒ 「关于」分区是设置页里唯一显示版本的地方，这条守卫只盯它。
     const wrapper = await mountApp();
-    expect(wrapper.text()).toContain(`v${PKG_VERSION}`);
-
     await goPane(wrapper, 'about');
     expect(wrapper.text()).toContain(`v${PKG_VERSION}`);
   });

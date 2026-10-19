@@ -350,6 +350,48 @@
   "options_include_pinned_tabs": {
     "message": "同时收纳我自己固定的标签页"
   },
+  "options_blacklist_section": {
+    "message": "这些不收纳"
+  },
+  "options_blacklist_hint": {
+    "message": "网址以其中任意一项开头的标签页会被放着不动：既不收进会话，也不关掉它。取消勾选即表示这类页面照收照关。"
+  },
+  "options_blacklist_expand": {
+    "message": "展开黑名单设置"
+  },
+  "options_blacklist_collapse": {
+    "message": "收起"
+  },
+  "options_blacklist_unblock_warning": {
+    "message": "取消勾选后，这类页面会被收进会话并关掉；某些浏览器还不允许重新打开它 —— 那样的记录会留在会话里，并标注「无法直接恢复」。"
+  },
+  "options_blacklist_summary": {
+    "message": "当前 __count__ 项不收纳。"
+  },
+  "options_blacklist_summary_unblocked": {
+    "message": "当前 __count__ 项不收纳，但 __list__ 会照收（收进会话并关掉）。"
+  },
+  "options_blacklist_add": {
+    "message": "添加"
+  },
+  "options_blacklist_add_placeholder": {
+    "message": "chrome:// 或 example.com/path/"
+  },
+  "options_blacklist_echo": {
+    "message": "将按 __prefix__ 匹配"
+  },
+  "options_blacklist_invalid": {
+    "message": "读不出这是个什么前缀 —— 请写成协议（chrome://）或完整地址（https://example.com/）。"
+  },
+  "options_blacklist_duplicate": {
+    "message": "已经在列表里了。"
+  },
+  "options_blacklist_remove": {
+    "message": "移除"
+  },
+  "options_blacklist_floor_note": {
+    "message": "about:blank 与 javascript: 永远不收，也不在这里给开关 —— 前者是师兄收纳给自己开的落脚页，后者被浏览器直接拒绝。"
+  },
   "options_entry_section": {
     "message": "标签栏入口 T"
   },
@@ -892,9 +934,6 @@
   },
   "options_subtitle": {
     "message": "一键收好 Tabs，之后随时找回"
-  },
-  "options_local_only": {
-    "message": "只存本机，没有账号"
   },
   "options_sync_sub": {
     "message": "把标签组同步到你自己的 WebDAV 网盘。默认关着：不填就永远不会发出任何请求。"

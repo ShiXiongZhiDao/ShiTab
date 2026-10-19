@@ -63,9 +63,10 @@ don't control, or it asks to read the sites you visit.
 
 Click the toolbar icon: this window's tabs become **one group** and close. One gesture, no menu in
 between — a toolbar button that has a popup can't also report a plain click, and that click is the whole
-point. Pinned tabs stay put by default; one setting changes that. Pages no extension is allowed to
-reopen — `chrome://`, `edge://`, the new-tab page, another extension's own pages — are neither recorded
-nor closed: they just stay where they are, so one stash does not always empty the window.
+point. Pinned tabs stay put by default; one setting changes that. Pages on the stash blocklist —
+`chrome://`, `edge://`, the new-tab page, Web Store pages — are neither recorded nor closed: they
+just stay where they are, so one stash does not always empty the window. The blocklist is yours:
+*Settings → Never stash these* turns any of them back on, and extension pages are stashed by default.
 
 ### Getting them back
 
@@ -91,8 +92,9 @@ Deleted groups — and entries deleted out of a group — wait 7 days here. Chec
 lines inside it; both granularities live in one view, and a row whose lines are all checked is handled as
 a row. *Restore* and *Delete forever* are each two clicks.
 
-Tabs that no browser can re-open (`about:blank`, an extension's own page) **never enter the trash**:
-promising a restore I cannot perform is worse than not pretending.
+Tabs marked *not directly restorable* — where the browser refuses to reopen the URL — **never enter
+the trash**: promising a restore I cannot perform is worse than not pretending. (Under the default
+settings such rows do not appear at all; they only show up if you remove something from the blocklist.)
 
 ### Locking
 
@@ -248,8 +250,11 @@ Nothing is lost unless you deleted it. Deleted groups wait in the trash for 7 da
 the left column and restore the row, or only some lines inside it.
 
 **Q: Some tabs didn't come back.**
-`about:blank`, `chrome://` / `edge://` pages and other extensions' pages can't be re-opened by any
-extension, so ShiTab doesn't pretend to save them.
+Two are never stashed at all: `about:blank` (it is the landing page ShiTab opens for itself) and
+`javascript:` (the browser refuses it). Beyond that, ShiTab skips `chrome://` / `edge://`, the
+new-tab page and Web Store pages **by default** — they are left open, not lost. Open
+*Settings → Never stash these* and uncheck an entry if you want that kind of page stashed; extension
+pages are already stashed by default.
 
 **Q: Do I need an account to sync?**
 No. You need a WebDAV folder you already control, and its credentials stay on your machine.

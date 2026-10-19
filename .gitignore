@@ -24,3 +24,6 @@ web-ext.config.ts
 *.njsproj
 *.sln
 *.sw?
+
+# 代理工作记忆（本机会话产物，不进版本库）
+.workbuddy/

@@ -14,14 +14,16 @@
  * 1. **`SyncPanel` 与 `SnapshotHistoryPanel` 的内部结构一个字没动**，只是被搬进「同步」分区。
  *    它们的用例各自独立 `mount()`（`test/ui-sync-panel.spec.ts`、`test/ui-history-panel.spec.ts`），
  *    所以这一页怎么重排都不该弄红它们 —— 真红了就说明改到面板内部了。
- * 2. **版本号只有一个来源**：这里读 manifest，不写字面量。
- *    `test/search-and-backup.spec.ts` 那两条守卫盯的就是这一页。
+ * 2. **版本号曾经在导航底部显示过一行**（既有约定：读 manifest 不写字面量），2026-10-19
+ *    应用户要求整行去掉 —— 现在设置页不再显示版本，`AboutPanel` 是唯一显示处，
+ *    `test/search-and-backup.spec.ts` 那条守卫盯的是它。别在这里手写第二遍。
  * 3. **分区写进 URL hash**，所以「打开设置页的同步那一节」是可以直接发给别人的链接，
  *    后退键也能退回上一个分区。工作台那颗同步异常 pill 将来要直达某节，改一行就行。
  */
 import { onMounted, onUnmounted, ref } from 'vue';
 import AboutPanel from '@/components/AboutPanel.vue';
 import AppIcon from '@/components/AppIcon.vue';
+import BlacklistPanel from '@/components/BlacklistPanel.vue';
 import PaneHeader from '@/components/PaneHeader.vue';
 import ResultToast from '@/components/ResultToast.vue';
 import SettingRow from '@/components/SettingRow.vue';
@@ -44,8 +46,6 @@ const locale = useLocale();
 const settings = ref<Settings | null>(null);
 const file = ref<HTMLInputElement | null>(null);
 const lastExport = ref('—');
-/** 版本读 manifest，不在这里手写第二遍。导航底部那一行是给人截图报障用的。 */
-const version = `v${browser.runtime.getManifest().version}`;
 
 /* ── 分区导航 ─────────────────────────────────────────────── */
 
@@ -176,10 +176,6 @@ async function onPickFile(event: Event): Promise<void> {
               <span>{{ t(item.labelKey) }}</span>
             </button>
           </nav>
-
-          <div class="mt-2.5 border-t border-line px-2.5 pt-2.5 text-[10.5px] leading-relaxed text-muted">
-            {{ version }} · {{ t('options_local_only') }}
-          </div>
         </div>
       </aside>
 
@@ -226,6 +222,17 @@ async function onPickFile(event: Event): Promise<void> {
                   @toggle="patch({ includePinnedTabs: !(settings?.includePinnedTabs ?? false) })"
                 />
               </SettingRow>
+            </section>
+
+            <!-- 收纳黑名单。放在「常规」分区的收纳一节之后：
+                 它管的正是"收纳时收什么"，跟上面那三个开关是同一件事的下一格。 -->
+            <section class="mb-3.5 rounded-card border border-line bg-panel p-5">
+              <h3 class="m-0 mb-1 text-[11px] font-extrabold tracking-widest text-muted">{{ t('options_blacklist_section') }}</h3>
+              <BlacklistPanel
+                v-if="settings"
+                :prefixes="settings.blockedPrefixes"
+                @change="patch({ blockedPrefixes: $event })"
+              />
             </section>
 
             <section class="mb-3.5 rounded-card border border-line bg-panel p-5">

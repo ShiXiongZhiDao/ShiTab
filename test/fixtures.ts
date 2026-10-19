@@ -10,7 +10,7 @@
  */
 
 import { createGroup } from '@/core/domain/group';
-import { isRestorableUrl } from '@/core/domain/tab';
+import { DEFAULT_BLOCKED_PREFIXES, isBlockedUrl } from '@/core/domain/blocked-prefixes';
 import { decodeWire } from '@/core/domain/sync-data';
 import type { StoragePort } from '@/core/ports/storage';
 import type { SavedTab, SyncManifest, SyncSnapshot, TabGroup } from '@/shared/types';
@@ -39,8 +39,12 @@ export async function putEmptyGroup(
 }
 
 /**
- * 一条 `SavedTab`。字段形状与收纳路径同源（`restorable` 走 `isRestorableUrl`），
+ * 一条 `SavedTab`。字段形状与收纳路径同源（`restorable` 走 `isBlockedUrl` + 出厂默认黑名单），
  * 所以拿它造出来的数据不会因为"测试自己写了一份"而和生产分叉。
+ *
+ * ⚠ 用例里要造**不可恢复**的行时，请直接写 `restorable: false`（老数据就是那个形状），
+ * 不要指望换个 URL 就能造出来 —— 既有约定 之后黑名单是可配置的，夹具用出厂默认那份，
+ * 换 URL 造出来的形状取决于默认表，读起来比写明布尔难得多。
  */
 export function savedTabFixture(groupId: string, id: string, sortOrder: number): SavedTab {
   const url = `https://example${sortOrder % 7}.com/path/${groupId}/${id}?q=query-value`;
@@ -57,7 +61,7 @@ export function savedTabFixture(groupId: string, id: string, sortOrder: number):
     originalPinned: false,
     wasActive: sortOrder === 0,
     closeState: 'closed',
-    restorable: isRestorableUrl(url),
+    restorable: !isBlockedUrl(url, DEFAULT_BLOCKED_PREFIXES),
   };
 }
 
