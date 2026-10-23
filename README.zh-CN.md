@@ -6,9 +6,19 @@
 
 <p align="center"><a href="./README.md">English</a> · <strong>简体中文</strong></p>
 
-<p align="center"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT 授权"> <img src="https://img.shields.io/badge/browsers-Chrome%20%C2%B7%20Edge%20%C2%B7%20Firefox-blue" alt="三个浏览器"> <img src="https://img.shields.io/badge/manifest-MV3-lightgrey" alt="Manifest V3"> <img src="https://img.shields.io/badge/data-local_only-yellowgreen" alt="只存本机"> <img src="https://img.shields.io/badge/store-not_published-orange" alt="还没上架商店"></p>
+<p align="center"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT 授权"> <img src="https://img.shields.io/badge/browsers-Chrome%20%C2%B7%20Edge%20%C2%B7%20Firefox-blue" alt="三个浏览器"> <img src="https://img.shields.io/badge/manifest-MV3-lightgrey" alt="Manifest V3"> <img src="https://img.shields.io/badge/data-local_only-yellowgreen" alt="只存本机"> <a href="https://chromewebstore.google.com/detail/mknoehnmbkajckmnhdnejnpjcbebcmhj"><img src="https://img.shields.io/badge/Chrome_Web_Store-available-4285F4" alt="已在 Chrome 应用商店上架"></a> <a href="https://microsoftedge.microsoft.com/addons/detail/ngegdomajhgoljmolnmfgpengnimgllj"><img src="https://img.shields.io/badge/Edge_Add--ons-available-0078D7" alt="已在 Edge 加载项商店上架"></a></p>
 
 <p align="center"><img src="assets/screenshots/zh/workbench.png" alt="工作台：左边是分类，右边是你收起来的标签组" width="920"></p>
+
+---
+
+## 安装
+
+- **Chrome** — [Chrome 应用商店](https://chromewebstore.google.com/detail/mknoehnmbkajckmnhdnejnpjcbebcmhj)
+- **Edge** — [Edge 加载项商店](https://microsoftedge.microsoft.com/addons/detail/ngegdomajhgoljmolnmfgpengnimgllj)
+- **Firefox** — 还没有商店页；从这个仓库自己构建（见下面「快速开始」那一节）。
+
+商店版只改一件事：以后是浏览器替你装更新。申请哪些权限、要不要钱、标签存在哪一处，和这里构建出来的那份完全一样 —— 商店后面那个扩展不是另一个扩展。
 
 ---
 
@@ -119,13 +129,13 @@
 
 ## 支持的浏览器
 
-| 浏览器 | 状态 | 现在怎么装 |
+| 浏览器 | 状态 | 从哪儿装 |
 |---|---|---|
-| Chrome | 每天都在用、都在测 | 开发者模式加载已解压的产物目录 |
-| Edge | 每天都在用、都在测 | 开发者模式加载已解压的产物目录 |
-| Firefox | 同一份代码构建得出来；**还没在真 Firefox 上验过** | 临时附加组件 |
+| Chrome | 每天都在用、都在测 | [Chrome 应用商店](https://chromewebstore.google.com/detail/mknoehnmbkajckmnhdnejnpjcbebcmhj) |
+| Edge | 每天都在用、都在测 | [Edge 加载项商店](https://microsoftedge.microsoft.com/addons/detail/ngegdomajhgoljmolnmfgpengnimgllj) |
+| Firefox | 同一份代码构建得出来；**还没在真 Firefox 上验过** | 还没有商店页 —— 以临时附加组件加载 |
 
-三端都是 Manifest V3。目前还没上架任何扩展商店 —— 上面最后一枚徽章说的就是这件事。
+三端都是 Manifest V3。Firefox 没有商店页，是因为我还没在真的 Firefox 上跑过 —— 这句话留在这里，直到它不成立。
 
 ## 快速开始
 
@@ -141,7 +151,7 @@ pnpm verify           # 类型检查 + 全部测试 + 两端构建
 
 需要 Node >= 22。测试、约定与界面分层的理由请看 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-**加载：**
+**自己加载构建产物** —— 从商店装的可以跳过，这一段只是给要跑本仓库代码的人：
 
 - **Chrome**：`chrome://extensions` → 打开*开发者模式* → *加载已解压的扩展程序* → 选 `.output/chrome-mv3`。
 - **Edge**：`edge://extensions` → *开发者模式* → *加载已解压的扩展程序*。

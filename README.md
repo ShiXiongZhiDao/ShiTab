@@ -6,9 +6,21 @@
 
 <p align="center"><strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a></p>
 
-<p align="center"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT licensed"> <img src="https://img.shields.io/badge/browsers-Chrome%20%C2%B7%20Edge%20%C2%B7%20Firefox-blue" alt="Three browsers"> <img src="https://img.shields.io/badge/manifest-MV3-lightgrey" alt="Manifest V3"> <img src="https://img.shields.io/badge/data-local_only-yellowgreen" alt="Local only"> <img src="https://img.shields.io/badge/store-not_published-orange" alt="Not on any store yet"></p>
+<p align="center"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT licensed"> <img src="https://img.shields.io/badge/browsers-Chrome%20%C2%B7%20Edge%20%C2%B7%20Firefox-blue" alt="Three browsers"> <img src="https://img.shields.io/badge/manifest-MV3-lightgrey" alt="Manifest V3"> <img src="https://img.shields.io/badge/data-local_only-yellowgreen" alt="Local only"> <a href="https://chromewebstore.google.com/detail/mknoehnmbkajckmnhdnejnpjcbebcmhj"><img src="https://img.shields.io/badge/Chrome_Web_Store-available-4285F4" alt="Available on the Chrome Web Store"></a> <a href="https://microsoftedge.microsoft.com/addons/detail/ngegdomajhgoljmolnmfgpengnimgllj"><img src="https://img.shields.io/badge/Edge_Add--ons-available-0078D7" alt="Available on Edge Add-ons"></a></p>
 
 <p align="center"><img src="assets/screenshots/en/hero.png" alt="The workbench: categories on the left, your stashed sessions on the right" width="920"></p>
+
+---
+
+## Install
+
+- **Chrome** — [Chrome Web Store](https://chromewebstore.google.com/detail/mknoehnmbkajckmnhdnejnpjcbebcmhj)
+- **Edge** — [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/ngegdomajhgoljmolnmfgpengnimgllj)
+- **Firefox** — no store listing yet; build it from this repository ([Quick start](#quick-start)).
+
+A store listing changes one thing: the browser installs updates for you. The permissions it asks for,
+the price, and the single place your tabs live are the same as in the build here — the extension behind
+a store listing is not a different extension.
 
 ---
 
@@ -167,14 +179,14 @@ Same layout, both palettes. The toggle is the moon/sun button at the bottom of t
 
 ## Supported browsers
 
-| Browser | State | How you install it today |
+| Browser | State | Where you get it |
 |---|---|---|
-| Chrome | used and tested daily | load the built folder unpacked |
-| Edge | used and tested daily | load the built folder unpacked |
-| Firefox | builds from the same code; **not yet verified on a real Firefox** | temporary add-on |
+| Chrome | used and tested daily | [Chrome Web Store](https://chromewebstore.google.com/detail/mknoehnmbkajckmnhdnejnpjcbebcmhj) |
+| Edge | used and tested daily | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/ngegdomajhgoljmolnmfgpengnimgllj) |
+| Firefox | builds from the same code; **not yet verified on a real Firefox** | no listing yet — load it as a temporary add-on |
 
-Manifest V3 on all three. Nothing is published to an extension store yet — which is what the last badge
-above says.
+Manifest V3 on all three. Firefox has no listing because I have not run it on a real Firefox — that
+sentence stays here until it is false.
 
 ## Quick start
 
@@ -191,7 +203,8 @@ pnpm verify           # typecheck + tests + both builds
 Requires Node >= 22. The tests, conventions and the reasons behind the layout decisions:
 [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-**Load it:**
+**Load a build yourself** — skip this if you installed it from a store, it is only for running the code
+in this repository:
 
 - **Chrome**: `chrome://extensions` → turn on *Developer mode* → *Load unpacked* → pick
   `.output/chrome-mv3`.
